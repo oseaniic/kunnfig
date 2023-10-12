@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo pacman -Sy ark linux-headers polkit-kde-agent dunst pipewire pipewire-alsa pipewire-audio pipewire-jack pipewire-pulse gst-plugin-pipewire wireplumber network-manager-applet bluez bluez-utils blueman brightnessctl qt5-wayland qt6-wayland cpupower celluloid evince libreoffice-fresh ttf-roboto zsh exa wget ttf-meslo-nerd ttf-font-awesome ttf-hack 
+sudo pacman -Sy ark linux-headers polkit-kde-agent dunst pipewire pipewire-alsa pipewire-audio pipewire-jack pipewire-pulse gst-plugin-pipewire wireplumber network-manager-applet bluez bluez-utils blueman brightnessctl qt5-wayland qt6-wayland cpupower celluloid evince libreoffice-fresh ttf-roboto zsh exa wget ttf-meslo-nerd ttf-font-awesome ttf-hack kitty kate firefox powertop sddm dolphin
 
 
 git clone https://aur.archlinux.org/yay.git

@@ -1,6 +1,9 @@
 lsblk #(to see device names and stuffs)
 cfdisk /dev/nvme0n1
 
+# To make font bigger: setfont ter-132n
+# to get keyring or whatver to use pacman from installer: pacman -Sy archlinux-keyring
+
 #set 100 or 300 MB for efi part
 #set 4 or 8 GB for swap part
 #set rest of space for linux filesystem

@@ -108,6 +108,7 @@ echo "Launching nano for you to enable multilib.."
 nano /etc/pacman.conf
 
 sudo systemctl enable NetworkManager
+sudo pacman -Sy
 
 echo "second script done you may reboot now"
 EOF
