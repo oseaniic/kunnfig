@@ -80,8 +80,7 @@ echo "Entering system.."
 
 arch-chroot /mnt	# Enter the system
 
-arch-chroot /mnt <<EOF
-  # Commands to run inside the chroot environment
+arch-chroot /mnt /bin/bash -c '
   ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
   hwclock --systohc
   nano /etc/locale.gen
@@ -94,5 +93,4 @@ arch-chroot /mnt <<EOF
   grub-install "/dev/$input_parent"
   grub-mkconfig -o /boot/grub/grub.cfg
   nano /etc/pacman.conf
-  exit
-EOF
+'
