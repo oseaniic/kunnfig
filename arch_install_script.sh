@@ -78,9 +78,10 @@ genfstab /mnt > /mnt/etc/fstab
 echo ""
 echo "Entering system.."
 
-arch-chroot /mnt	# Enter the system
-
-arch-chroot /mnt /bin/bash -c '
+echo "Entering system.."
+(
+  arch-chroot /mnt /bin/bash <<CHROOT
+  # Commands to run inside the chroot environment
   ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
   hwclock --systohc
   nano /etc/locale.gen
@@ -93,4 +94,7 @@ arch-chroot /mnt /bin/bash -c '
   grub-install "/dev/$input_parent"
   grub-mkconfig -o /boot/grub/grub.cfg
   nano /etc/pacman.conf
-'
+  CHROOT
+)
+
+echo "DONEEE"
