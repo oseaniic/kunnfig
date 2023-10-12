@@ -80,37 +80,19 @@ echo "Entering system.."
 
 arch-chroot /mnt	# Enter the system
 
-echo ""
-echo "Creating locales, times and sutufszz, and system name.."
-
-ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
-hwclock --systohc
-nano /etc/locale.gen
-locale-gen
-echo "LANG=en_US.UTF-8" > /etc/locale.conf  # Create /etc/locale.conf file and write to it
-echo "$input_systemname" > /etc/hostname # Give the system a name
-
-echo ""
-echo "Creating user and Visudoing.."
-
-passwd -l root                                      # Lock the root account
-useradd -m -G wheel -s /bin/bash "$input_username"  # Create the user
-echo "$input_username:$input_password" | chpasswd   # Set the password for the user
-EDITOR=nano visudo
-
-echo ""
-echo "Installing grub.."
-
-grub-install "/dev/$input_parent"
-grub-mkconfig -o /boot/grub/grub.cfg
-
-echo ""
-echo "Launching nano for u to enable multilib.."
-
-nano /etc/pacman.conf
-
-echo "done!!!"
-
-#echo ""
-#echo "Unmounting.. you may now restart the system"
-#umount -a
+arch-chroot /mnt <<EOF
+  # Commands to run inside the chroot environment
+  ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
+  hwclock --systohc
+  nano /etc/locale.gen
+  locale-gen
+  echo "LANG=en_US.UTF-8" > /etc/locale.conf
+  echo "$input_systemname" > /etc/hostname
+  useradd -m -G wheel -s /bin/bash "$input_username"
+  echo "$input_username:$input_password" | chpasswd
+  EDITOR=nano visudo
+  grub-install "/dev/$input_parent"
+  grub-mkconfig -o /boot/grub/grub.cfg
+  nano /etc/pacman.conf
+  exit
+EOF
