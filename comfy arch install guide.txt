@@ -1,0 +1,100 @@
+lsblk #(to see device names and stuffs)
+cfdisk /dev/nvme0n1
+
+#set 100 or 300 MB for efi part
+#set 4 or 8 GB for swap part
+#set rest of space for linux filesystem
+
+mkfs.ext4 /dev/nvme0n1p7   		#(filesystem)
+mkfs.fat -F 32 /dev/nvme0n1p5 	#(EFI)
+mkswap /dev/nvme0n1p6			#(SWAP)
+
+mount /dev/nvme0n1p7 /mnt
+mkdir -p /mnt/boot/efi
+mount /dev/nvme0n1p5 /mnt/boot/efi
+swapon /dev/nvme0n1p6
+
+#check with lsblk if everything looks fine
+
+pacstrap /mnt base linux linux-firmware sof-firmware base-devel git grub efibootmgr nano networkmanager # No caps on networkamanager
+
+genfstab /mnt > /mnt/etc/fstab
+# to check contents of file just in case, use: cat /mnt...
+
+arch-chroot /mnt	# Enter the system
+ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
+hwclock --systohc
+# write "date" to check the system date
+
+nano /etc/locale.gen
+# In this file uncomment:  en_US.UTF-8 UTF-8 and save
+locale-gen
+
+nano /etc/locale.conf
+# Type: LANG=en_US.UTF-8
+
+nano /etc/hostname
+# pick a name for the computer, ArcAspire
+
+passwd	# pick a root password
+useradd -m -G wheel -s /bin/bash osean
+passwd osean	#set user password
+
+EDITOR=nano visudo
+# in this file uncomment: uncomment to allow members of group wheel to excecute any command
+# the line looks like this: %wheel ALL=(ALL) ALL
+
+grub-install /dev/nvme0n1
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Enable multi lib for more packages, like steam in pacman
+nano /etc/pacman.conf
+# uncomment multilib
+
+exit # go back to colored prompt
+umount -a
+reboot
+
+sudo pacman -Sy kitty kate firefox powertop sddm dolphin
+
+install hyprland here:
+
+# get yay:
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si
+
+# get hyprland
+yay -S hyprland-git
+
+sudo systemctl enable --now NetworkManager
+sudo systemctl enable --now sddm
+
+# connect to interwebs wifu:
+ip link
+sudo ip link set wlan0 up 	# wlan0 or whatever is your wifi device
+nmcli device wifi list		# just to show the wifi list, optional
+sudo nmcli device wifi connect YourSSID password YourPassword
+
+
+# Once everything seems good and you can boot into it, lets install other stuffs:
+
+sudo pacman -S ark linux-headers polkit-kde-agent dunst pipewire pipewire-alsa pipewire-audio pipewire-jack pipewire-pulse gst-plugin-pipewire wireplumber network-manager-applet bluez bluez-utils blueman brightnessctl qt5-wayland qt6-wayland cpupower celluloid evince libreoffice-fresh ttf-roboto zsh exa wget ttf-meslo-nerd ttf-font-awesome ttf-hack 
+
+yay -S xdg-desktop-portal-hyprland-git waybar-hyprland-git rofi-lbonn-wayland-git visual-studio-code-bin whatsapp-for-linux 
+
+# ZSH theme and config:
+wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh
+sh install.sh
+
+git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k ; \
+git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions ; \
+git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting ; \
+git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
+
+source ~/.zshrc
+
+# Installing dark mode
+sudo pacman -S breeze
+yay -S nwg-look adwaita-qt5-git qt5ct   # Once done, you can run nwg-look from terminal and apply dark theme, and also qt5ct
+# Edit this file and add the line QT_QPA_PLATFORMTHEME=qt5ct and save.
