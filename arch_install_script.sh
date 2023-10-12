@@ -107,7 +107,9 @@ echo "Launching nano for you to enable multilib.."
 
 nano /etc/pacman.conf
 
-echo "second script done!!!"
+sudo systemctl enable NetworkManager
+
+echo "second script done you may reboot now"
 EOF
 
 # Make the secondary script executable
@@ -116,4 +118,3 @@ chmod +x /mnt/install_pt2.sh
 # Enter the chroot environment
 arch-chroot /mnt /bin/bash -c "/install_pt2.sh"
 
-echo "DONEEE"

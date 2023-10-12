@@ -51,6 +51,8 @@ grub-mkconfig -o /boot/grub/grub.cfg
 nano /etc/pacman.conf
 # uncomment multilib
 
+sudo systemctl enable --now NetworkManager
+
 exit # go back to colored prompt
 umount -a
 reboot
@@ -67,7 +69,7 @@ makepkg -si
 # get hyprland
 yay -S hyprland-git
 
-sudo systemctl enable --now NetworkManager
+
 sudo systemctl enable --now sddm
 
 # connect to interwebs wifu:
