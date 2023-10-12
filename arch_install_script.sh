@@ -107,7 +107,7 @@ echo "Launching nano for you to enable multilib.."
 
 nano /etc/pacman.conf
 
-echo "done!!!"
+echo "second script done!!!"
 EOF
 
 # Make the secondary script executable

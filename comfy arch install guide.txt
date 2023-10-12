@@ -57,7 +57,7 @@ reboot
 
 sudo pacman -Sy kitty kate firefox powertop sddm dolphin
 
-install hyprland here:
+# install hyprland here:
 
 # get yay:
 git clone https://aur.archlinux.org/yay.git
