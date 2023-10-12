@@ -109,6 +109,8 @@ echo "Launching nano for u to enable multilib.."
 
 nano /etc/pacman.conf
 
+echo "done!!!"
+
 #echo ""
 #echo "Unmounting.. you may now restart the system"
 #umount -a
