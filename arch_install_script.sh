@@ -19,6 +19,12 @@ read input_swap
 echo "Type the partition to install the Filesystem files in (rest of the drive space):"
 read input_filesystem
 
+# Check if the user's choices are valid partitions
+if [ ! -b "/dev/$input_efi" ] || [ ! -b "/dev/$input_swap" ] || [ ! -b "/dev/$input_filesystem" ]; then
+    echo "Invalid partition(s) selected. Please choose valid partitions."
+    exit 1
+fi
+
 echo "Type the parent drive of the partitions to use"
 read input_parent
 
@@ -30,18 +36,17 @@ read input_username
 echo "Create a password for the username (same rules apply)"
 read -s input_password
 
-# Check if the user's choices are valid partitions
-if [ ! -b "/dev/$input_efi" ] || [ ! -b "/dev/$input_swap" ] || [ ! -b "/dev/$input_filesystem" ]; then
-    echo "Invalid partition(s) selected. Please choose valid partitions."
-    exit 1
-fi
 
 # Display a summary of the user's choices
-echo ""
+echo "=========================================="
 echo "Summary of Choices:"
 echo "EFI Partition: $input_efi"
 echo "SWAP Partition: $input_swap"
 echo "Filesystem Partition: $input_filesystem"
+echo "Parent drive to install grub to: $input_parent"
+echo "Name of the system: $input_systemname"
+echo "Username: $input_username"
+echo "=========================================="
 
 # Ask for deletion confirmation
 echo "All data in the selected partitions will be DESTROYED. Proceed? (y or n)"
@@ -55,6 +60,7 @@ elif [ "$confirmation" != "y" ]; then
 fi
 
 echo "Formating..."
+echo ""
 mkfs.ext4 "/dev/$input_filesystem"
 mkfs.fat -F 32 "/dev/$input_efi"
 mkswap "/dev/$input_swap"
