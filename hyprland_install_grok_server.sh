@@ -72,7 +72,7 @@ cp -rf ./hyprland_install_grok_server_configs/* "$HOME/.config/"
 #echo "Is Elon Musk our lord and savior?"
 #read answer
 #
-#if [ "$answer" = "Yes my lord." ]; then
+#if [ "$answer" = "Yes sir." ]; then
 #    echo "Good."
 #    exit
 #else
