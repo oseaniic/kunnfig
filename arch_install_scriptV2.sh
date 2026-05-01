@@ -1,949 +1,981 @@
 #!/bin/bash
-# ╔══════════════════════════════════════════════════════════════╗
-# ║      Osean's Arch Install Script — Tsundere Edition v2       ║
-# ║   Run from Arch live ISO. Do NOT pre-run cfdisk manually.    ║
-# ╚══════════════════════════════════════════════════════════════╝
+# =============================================================================
+#  Osean's Arch Install Script — Enhanced Tsundere Edition
+#  w-What?! AGAIN?! What did you DO to the last one?! BAKAA!
+# =============================================================================
 
-# ── Global State ─────────────────────────────────────────────────────────────
-INPUT_PARENT=""
-INPUT_EFI=""
-USE_SWAP=false
-INPUT_SWAP=""
-INPUT_FILESYSTEM=""
-INPUT_SYSTEMNAME=""
-INPUT_USERNAME=""
-INPUT_PASSWORD=""
-ROOT_ENABLED=false
-ROOT_PASSWORD=""
-SELECTED_LOCALES=()
-SELECTED_KEYMAP="us"
-INSTALL_YAY=false
-INSTALL_SDDM=false
-GPU_TYPE="broke"
-DETECT_OS=false
-AUTOLOGIN=false
-OPTIONAL_PACKAGES=()
-PUNISH_IDX=0
+# ── Colors ────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; PINK='\033[1;35m'; GREEN='\033[0;32m'
+YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
-# ── Colours (terminal only, never passed into dialog) ─────────────────────────
-B=$'\033[1m';  R=$'\033[0m'
-CY=$'\033[36m'; YL=$'\033[33m'; RD=$'\033[31m'
-GR=$'\033[32m'; MG=$'\033[35m'
+# ── Logging ───────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="$SCRIPT_DIR/arch_install.log"
 
-# ── Tsundere messages (terminal) ──────────────────────────────────────────────
-t_reinstall() {
-    echo -e "${MG}${B}...AGAIN?? seriously, AGAIN?? what did you even DO to the last one?"
-    echo -e "d-don't answer that. let's just get this over with. baka.${R}"
+_log() { printf '[%s] [%-5s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$LOG_FILE"; }
+log_info()  { _log "INFO"  "$*"; }
+log_warn()  { _log "WARN"  "$*"; }
+log_error() { _log "ERROR" "$*"; }
+log_sep()   { printf '%.0s─' {1..60} >> "$LOG_FILE"; printf '\n' >> "$LOG_FILE"; }
+
+run_logged() {
+    log_info "CMD: $*"
+    local out; out=$("$@" 2>&1); local ret=$?
+    printf '%s\n' "$out" >> "$LOG_FILE"
+    [[ $ret -ne 0 ]] && log_error "FAILED (exit $ret): $*"
+    return $ret
 }
-t_noyay()       { echo -e "${YL}${B}no yay?! fine!! enjoy typing full AUR URLs like an animal. idiot.${R}"; }
-t_nosddm()      { echo -e "${YL}${B}no display manager. okay mr. soy terminal-login. whatever.${R}"; }
-t_nobios()      { echo -e "${YL}${B}not detecting other OSes? baka. hope you don't regret that later.${R}"; }
-t_nopkgs()      { echo -e "${MG}${B}k. that was the last time i do anything nice for you. hmp.${R}"; }
-t_broke()       { echo -e "${YL}${B}no GPU drivers. broke boi confirmed. i'm not judging. (i'm judging.)${R}"; }
-t_noautologin() { echo -e "${CY}${B}no autologin. okay. you enjoy typing your password. masochist.${R}"; }
-
-# ── Tsundere messages (dialog-safe, plain text) ───────────────────────────────
-DT_GREET="...again?? SERIOUSLY?? what happened to the last install?!\nYou know what, fine. let's do this. b-baka."
-DT_NOPWD_MATCH="th-those passwords don't match!! how are you even a computer person?! try again!!"
-DT_ATLEAST1="you HAVE to pick at LEAST one locale, baka!! what were you thinking?!"
-DT_SAMEPWD="...that's the SAME password as your user account, you absolute disaster.\nLinux purists are weeping somewhere. But it's technically fine so... whatever.\n(linux redditors do NOT recommend this but im not ur mom)"
-DT_PUNISH_OK="...f-fine. i'll allow it. don't make me regret this, got it?"
-DT_PUNISH_FAIL="WRONG!! you can't even type a simple string?! pathetic!!\nTry again or just give up already!!"
-DT_NOPKGS="k. that was the last time i do anything nice for you. hmp."
-
-# ── Punishment strings (case-sensitive, must be typed exactly) ─────────────────
-PUNISH_STRINGS=(
-    "I'm sorry boss, please allow me to retry."
-    "Forgive me, I made an error and wish to correct it."
-    "My deepest apologies, may I please try once more."
-    "I humbly request permission to redo this section."
-    "I acknowledge my mistake and ask for another chance."
-    "Please, I'll do better this time, I solemnly promise."
-    "Pardon my error, I would like to try once more."
-    "I messed up and take full responsibility. Retry please."
-    "One more chance is all I ask. I won't let you down."
-    "Sincerely sorry for the trouble. Permission to retry?"
-)
-
-# ── Dialog result capture ──────────────────────────────────────────────────────
-TMPF=$(mktemp)
-trap 'rm -f "$TMPF"' EXIT
-DIALOG_OUT=""
-
-run_dialog() {
-    # Usage: run_dialog [dialog flags...]
-    # Result in $DIALOG_OUT; returns dialog exit code
-    dialog --backtitle "Osean's Arch Installer — Tsundere Edition" "$@" 2>"$TMPF"
-    local rc=$?
-    DIALOG_OUT=$(cat "$TMPF")
-    return $rc
+run_tee() {
+    log_info "CMD: $*"
+    "$@" 2>&1 | tee -a "$LOG_FILE"
+    return "${PIPESTATUS[0]}"
 }
 
-# ── Horizontal arrow-key menu ──────────────────────────────────────────────────
-# Sets $HMENU_RESULT to index of chosen item.
-# Usage: hmenu "Prompt line" opt1 opt2 opt3 ...
+{ printf '%.0s═' {1..60}; printf '\n Arch Install Log — %s\n Script: %s\n' "$(date)" "$SCRIPT_DIR"
+  printf '%.0s═' {1..60}; printf '\n\n'; } > "$LOG_FILE"
+
+trap 'tput cnorm 2>/dev/null' EXIT
+
+# ── Key reader ────────────────────────────────────────────────────────────────
+_read_key() {
+    local k seq
+    IFS= read -r -s -n1 k
+    if [[ "$k" == $'\x1b' ]]; then
+        IFS= read -r -s -n2 -t 0.1 seq
+        case "$seq" in
+            '[A') printf 'UP';;    '[B') printf 'DOWN';;
+            '[C') printf 'RIGHT';; '[D') printf 'LEFT';; *) printf 'ESC';;
+        esac
+    elif [[ -z "$k" ]]; then printf 'ENTER'
+    elif [[ "$k" == ' ' ]]; then printf 'SPACE'
+    else printf 'CHAR:%s' "$k"; fi
+}
+
+# ── Horizontal single-select: result=$(hmenu opt1 opt2 ...) ──────────────────
 hmenu() {
-    local prompt="$1"; shift
-    local opts=("$@")
-    local sel=0 n=${#opts[@]}
-
-    printf '\n%s\n\n' "${B}${prompt}${R}"
-    tput civis 2>/dev/null || true
-
+    local opts=("$@") sel=0 n=$# k
+    tput civis 2>/dev/null
     while true; do
-        printf '\r  '
+        printf '\r\033[K  '
         for i in "${!opts[@]}"; do
-            if (( i == sel )); then
-                printf '%s' "${B}${CY}[ ${opts[$i]} ]${R}  "
-            else
-                printf '  %s   ' "${opts[$i]}"
-            fi
+            [[ $i -eq $sel ]] \
+                && printf "${BOLD}${GREEN}[%s]${NC}" "${opts[$i]}" \
+                || printf "${DIM} %s ${NC}" "${opts[$i]}"
+            [[ $i -lt $((n-1)) ]] && printf '  '
         done
-        printf '    '
-
-        IFS= read -rsn1 key
-        if [[ "$key" == $'\033' ]]; then
-            IFS= read -rsn2 -t0.1 seq || true
-            [[ "$seq" == '[C' ]] && (( sel < n-1 )) && (( sel++ ))
-            [[ "$seq" == '[D' ]] && (( sel > 0  )) && (( sel-- ))
-        elif [[ "$key" == '' ]]; then
-            break
-        fi
+        k=$(_read_key)
+        case "$k" in
+            RIGHT|DOWN) ((sel < n-1)) && ((sel++));;
+            LEFT|UP)    ((sel > 0))   && ((sel--));;
+            ENTER) break;;
+        esac
     done
-
-    tput cnorm 2>/dev/null || true
-    printf '\n\n'
-    HMENU_RESULT=$sel
+    printf '\n'; tput cnorm 2>/dev/null; printf '%s' "${opts[$sel]}"
 }
 
-# ── Disk helpers ──────────────────────────────────────────────────────────────
-get_disks() { lsblk -d -n -o NAME,TYPE | awk '$2=="disk"{print $1}'; }
-
-# Outputs "name size" pairs, one per line, for partitions of given disk
-get_parts_raw() { lsblk -n -o NAME,SIZE,TYPE "/dev/$1" 2>/dev/null | awk '$3=="part"{print $1, $2}'; }
-
-# Builds a dialog menu item list into an array variable named by $1
-# Usage: build_part_items result_array_name disk [exclude1 exclude2 ...]
-build_part_items() {
-    local -n _ref=$1; shift
-    local disk="$1";  shift
-    local excludes=("$@")
-    _ref=()
-    while IFS= read -r line; do
-        local pname psize
-        pname=$(awk '{print $1}' <<<"$line")
-        psize=$(awk '{print $2}' <<<"$line")
-        local skip=false
-        for ex in "${excludes[@]}"; do [[ "$pname" == "$ex" ]] && skip=true && break; done
-        $skip || _ref+=("$pname" "$psize")
-    done < <(get_parts_raw "$disk")
-}
-
-# ── Setup: install dialog from live ISO pacman ─────────────────────────────────
-setup_tools() {
-    clear
-    echo -e "${CY}Setting things up before we can actually talk to you properly...${R}"
-    pacman -S --needed --noconfirm dialog 2>/dev/null || true
-}
-
-# ── Network check ──────────────────────────────────────────────────────────────
-check_network() {
-    if ! ping -q -c1 -W3 archlinux.org &>/dev/null; then
-        echo -e "${RD}${B}Error: No network! Fix your internet first, baka!${R}"
-        exit 1
-    fi
-}
-
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 1 — Drive & Partition Selection
-# ═════════════════════════════════════════════════════════════════════════════
-section_1() {
+# ── Vertical single-select: result=$(vmenu opt1 opt2 ...) ────────────────────
+vmenu() {
+    local opts=("$@") sel=0 n=$# k
+    tput civis 2>/dev/null
+    for _ in "${opts[@]}"; do printf '\n'; done
     while true; do
-        # ── 1a. Pick parent drive ────────────────────────────────────────────
-        clear
-        echo -e "${B}${CY}══ SECTION 1 — Drive & Partition Setup ══${R}\n"
-        lsblk
-        echo ""
-
-        mapfile -t DISKS < <(get_disks)
-        if [[ ${#DISKS[@]} -eq 0 ]]; then
-            echo -e "${RD}${B}No disks found. how do you even have a computer?? exiting.${R}"
-            exit 1
-        fi
-
-        hmenu "Select your target drive   ←  →   Enter to confirm:" "${DISKS[@]}"
-        local chosen_disk="${DISKS[$HMENU_RESULT]}"
-
-        # ── 1b. Confirm / manage / repick ────────────────────────────────────
-        local part_ok=false
-        while ! $part_ok; do
-            clear
-            echo -e "${B}${CY}══ Drive selected: /dev/${chosen_disk} ══${R}\n"
-            lsblk "/dev/$chosen_disk"
-            echo ""
-
-            hmenu "What now?" \
-                "Continue" \
-                "Manage Partitions" \
-                "Pick Different Drive"
-
-            case $HMENU_RESULT in
-                0)  part_ok=true ;;
-                1)  cfdisk "/dev/$chosen_disk" || true
-                    clear ;;
-                2)  continue 2 ;;  # restart outer loop → re-pick drive
-            esac
+        tput cuu "$n" 2>/dev/null
+        for i in "${!opts[@]}"; do
+            printf '\r\033[K'
+            [[ $i -eq $sel ]] \
+                && printf "  ${BOLD}${GREEN}> %s${NC}\n" "${opts[$i]}" \
+                || printf "    %s\n" "${opts[$i]}"
         done
-
-        # ── 1c. Check partition count ─────────────────────────────────────────
-        local all_items=()
-        build_part_items all_items "$chosen_disk"
-        if [[ ${#all_items[@]} -lt 4 ]]; then   # need at least 2 partitions (4 elements)
-            run_dialog --title "Not enough partitions" \
-                --msgbox "i found fewer than 2 partitions on /dev/${chosen_disk}.\nYou need at minimum an EFI + filesystem partition.\nGo manage those first, baka." \
-                9 62
-            continue
-        fi
-
-        # ── 1d. EFI partition ─────────────────────────────────────────────────
-        run_dialog --title "EFI Partition" \
-            --menu "Select the EFI partition (recommended: 100–300 MB, will be FAT32)" \
-            20 72 10 "${all_items[@]}" || continue
-        local chosen_efi="$DIALOG_OUT"
-
-        # ── 1e. Swap (optional) ───────────────────────────────────────────────
-        local use_swap=false chosen_swap=""
-        if run_dialog --title "Swap Partition" \
-               --defaultno \
-               --yesno "Do you want a swap partition?\n(Optional on modern systems with plenty of RAM)" \
-               8 62; then
-            use_swap=true
-            local no_efi_items=()
-            build_part_items no_efi_items "$chosen_disk" "$chosen_efi"
-            if [[ ${#no_efi_items[@]} -lt 2 ]]; then
-                run_dialog --title "Not enough partitions" \
-                    --msgbox "No remaining partitions for swap after selecting EFI.\nSkipping swap." 7 60
-                use_swap=false
-            else
-                run_dialog --title "Swap Partition" \
-                    --menu "Select the swap partition (recommended: 4 GB or 8 GB)" \
-                    20 72 10 "${no_efi_items[@]}" || continue
-                chosen_swap="$DIALOG_OUT"
-            fi
-        fi
-
-        # ── 1f. Filesystem partition ─────────────────────────────────────────
-        local fs_items=()
-        build_part_items fs_items "$chosen_disk" "$chosen_efi" "$chosen_swap"
-        if [[ ${#fs_items[@]} -lt 2 ]]; then
-            run_dialog --title "Not enough partitions" \
-                --msgbox "No partitions left for filesystem! Go back and fix your partitions." 7 60
-            continue
-        fi
-        run_dialog --title "Filesystem Partition" \
-            --menu "Select the main filesystem partition\n  30 GB → bare-bones   50 GB → standard\n  80 GB → recommended  150 GB+ → heavy user" \
-            20 72 10 "${fs_items[@]}" || continue
-        local chosen_fs="$DIALOG_OUT"
-
-        # ── 1g. Summary + confirm ─────────────────────────────────────────────
-        local swap_line
-        $use_swap && swap_line="Swap:         /dev/${chosen_swap}" \
-                  || swap_line="Swap:         (none)"
-        local lsblk_out
-        lsblk_out=$(lsblk)
-
-        run_dialog --title "Partition Summary — does this look right?" \
-            --yesno "Drive:        /dev/${chosen_disk}\nEFI:          /dev/${chosen_efi}\n${swap_line}\nFilesystem:   /dev/${chosen_fs}\n\n${lsblk_out}" \
-            30 78 || continue
-
-        # Commit values
-        INPUT_PARENT="$chosen_disk"
-        INPUT_EFI="$chosen_efi"
-        USE_SWAP=$use_swap
-        INPUT_SWAP="$chosen_swap"
-        INPUT_FILESYSTEM="$chosen_fs"
-        return 0
+        k=$(_read_key)
+        case "$k" in
+            UP)    ((sel > 0))   && ((sel--));;
+            DOWN)  ((sel < n-1)) && ((sel++));;
+            ENTER) break;;
+        esac
     done
+    tput cnorm 2>/dev/null; printf '%s' "${opts[$sel]}"
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — System Name, Username & Password
-# ═════════════════════════════════════════════════════════════════════════════
-section_2() {
+# ── Checkbox menu: cbmenu ARRAY_VAR opt1 opt2 ... (modifies array in-place) ──
+cbmenu() {
+    local -n _cb="$1"; shift
+    local opts=("$@") n=$# total=$(($#+1)) sel=0 k
+    printf "${DIM}  [Space/Enter] toggle  [Up/Down] move  [Enter on Continue] done${NC}\n"
+    tput civis 2>/dev/null
+    for _ in $(seq 1 $total); do printf '\n'; done
     while true; do
-        # System name
-        run_dialog --title "System Name" \
-            --inputbox "Enter a hostname for this system:" 8 60 || continue
-        local sysname="$DIALOG_OUT"
-        [[ -z "$sysname" ]] && { run_dialog --title "!!" --msgbox "...a blank hostname. really. really??" 6 44; continue; }
-
-        # Username
-        run_dialog --title "Username" \
-            --inputbox "Create a username (lowercase, no special characters):" 8 60 || continue
-        local uname="$DIALOG_OUT"
-        if [[ -z "$uname" ]] || [[ ! "$uname" =~ ^[a-z][a-z0-9_-]*$ ]]; then
-            run_dialog --title "!!" --msgbox "Invalid username. lowercase letters/numbers/underscores only, baka." 7 60
-            continue
-        fi
-
-        # Password loop
-        local pwd1 pwd2
-        while true; do
-            run_dialog --title "Password" \
-                --passwordbox "Create a password for user '${uname}':" 8 60 || break 2
-            pwd1="$DIALOG_OUT"
-            run_dialog --title "Password (confirm)" \
-                --passwordbox "Retype the password:" 8 60 || break 2
-            pwd2="$DIALOG_OUT"
-            if [[ "$pwd1" != "$pwd2" ]]; then
-                run_dialog --title "!!" --msgbox "$DT_NOPWD_MATCH" 7 66
-            else
-                break
-            fi
+        tput cuu "$total" 2>/dev/null
+        for i in "${!opts[@]}"; do
+            printf '\r\033[K'
+            local box; [[ "${_cb[$i]:-0}" == '1' ]] && box="${GREEN}x${NC}" || box=' '
+            [[ $i -eq $sel ]] \
+                && printf "  ${BOLD}${GREEN}> [${NC}${box}${BOLD}${GREEN}] %s${NC}\n" "${opts[$i]}" \
+                || printf "    [${box}] %s\n" "${opts[$i]}"
         done
-
-        # Summary + continue / retry / test password
-        while true; do
-            run_dialog --title "Meta Summary — look right?" \
-                --menu "System:    ${sysname}\nUser:      ${uname}\nPassword:  ********\n" \
-                14 60 3 \
-                "continue" "Looks good, move on" \
-                "retry"    "Something's wrong, redo this" \
-                "test"     "Let me test my password real quick" || break 2
-
-            case "$DIALOG_OUT" in
-                continue) break 2 ;;
-                retry)    break ;;  # outer while → redo from top
-                test)
-                    run_dialog --title "Password Test" \
-                        --passwordbox "Type your password now:" 8 60 || continue
-                    if [[ "$DIALOG_OUT" == "$pwd1" ]]; then
-                        run_dialog --title "Password Test" --msgbox "yep. that's the one. happy now?" 6 44
-                    else
-                        run_dialog --title "Password Test" --msgbox "...WRONG. you have a problem. retry recommended." 6 52
-                    fi
-                    ;;
-            esac
-        done
+        printf '\r\033[K'
+        [[ $sel -eq $n ]] \
+            && printf "  ${BOLD}${CYAN}> [ Continue ]${NC}\n" \
+            || printf "    [ Continue ]\n"
+        k=$(_read_key)
+        case "$k" in
+            UP)    ((sel > 0))       && ((sel--));;
+            DOWN)  ((sel < total-1)) && ((sel++));;
+            SPACE|ENTER)
+                if [[ $sel -eq $n ]]; then [[ "$k" == 'ENTER' ]] && break
+                else [[ "${_cb[$sel]:-0}" == '1' ]] && _cb[$sel]='0' || _cb[$sel]='1'; fi;;
+        esac
     done
-
-    INPUT_SYSTEMNAME="$sysname"
-    INPUT_USERNAME="$uname"
-    INPUT_PASSWORD="$pwd1"
+    tput cnorm 2>/dev/null
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — Root / Administrator Account
-# ═════════════════════════════════════════════════════════════════════════════
-section_3() {
-    ROOT_ENABLED=false
-    ROOT_PASSWORD=""
-
-    if ! run_dialog --title "Root Account" \
-           --defaultno \
-           --yesno "Enable the root (administrator) account?\n\nThis is an old-school thing most modern systems don't need.\nI personally have never used it. Just saying.\nThe default username for root login is 'root' and cannot be changed here." \
-           12 68; then
-        return 0
-    fi
-
-    # User wants root enabled — get password
+# ── Yes/No: result=$(ynmenu [yes|no]) ─────────────────────────────────────────
+ynmenu() {
+    local sel=0 k; [[ "${1:-yes}" == 'no' ]] && sel=1
+    tput civis 2>/dev/null; printf '\n'
     while true; do
-        local r1 r2
-        run_dialog --title "Root Password" \
-            --passwordbox "Set a password for the root account\n(login username is: root)" 9 60 || { ROOT_ENABLED=false; return 0; }
-        r1="$DIALOG_OUT"
-        run_dialog --title "Root Password (confirm)" \
-            --passwordbox "Retype root password:" 8 60 || { ROOT_ENABLED=false; return 0; }
-        r2="$DIALOG_OUT"
-
-        if [[ "$r1" != "$r2" ]]; then
-            run_dialog --title "!!" --msgbox "$DT_NOPWD_MATCH" 7 66
-            run_dialog --title "Root Password" \
-                --menu "What do you want to do?" 9 56 2 \
-                "retry"    "Try entering root password again" \
-                "nevermind" "Forget it, disable root account" || { ROOT_ENABLED=false; return 0; }
-            [[ "$DIALOG_OUT" == "nevermind" ]] && { ROOT_ENABLED=false; return 0; }
-            continue
-        fi
-
-        # Warn if root password same as user password
-        if [[ "$r1" == "$INPUT_PASSWORD" ]]; then
-            run_dialog --title "uh... same password??" \
-                --menu "$DT_SAMEPWD" \
-                16 72 3 \
-                "continue"  "Yes i'm sure, use same password" \
-                "retry"     "Let me pick a different root password" \
-                "nevermind" "Actually forget the root account" || { ROOT_ENABLED=false; return 0; }
-            case "$DIALOG_OUT" in
-                continue)  break ;;
-                nevermind) ROOT_ENABLED=false; return 0 ;;
-                retry)     continue ;;
-            esac
-        else
-            break
-        fi
+        tput cuu 1 2>/dev/null; printf '\r\033[K  '
+        [[ $sel -eq 0 ]] \
+            && printf "${BOLD}${GREEN}[ Yes ]${NC}    ${DIM}No${NC}\n" \
+            || printf "${DIM}Yes${NC}    ${BOLD}${RED}[ No ]${NC}\n"
+        k=$(_read_key)
+        case "$k" in RIGHT|DOWN) sel=1;; LEFT|UP) sel=0;; ENTER) break;; esac
     done
-
-    ROOT_ENABLED=true
-    ROOT_PASSWORD="$r1"
+    tput cnorm 2>/dev/null
+    [[ $sel -eq 0 ]] && printf 'yes' || printf 'no'
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — Locale & Keyboard Layout
-# ═════════════════════════════════════════════════════════════════════════════
-# Locale tag → full locale string mapping
-declare -A LOCALE_MAP=(
-    ["en_US"]="en_US.UTF-8 UTF-8"
-    ["ja_JP"]="ja_JP.UTF-8 UTF-8"
-    ["es_PE"]="es_PE.UTF-8 UTF-8"
+pause() { printf '\n  %s' "${1:-Press any key to continue...}"; IFS= read -r -s -n1; printf '\n'; }
+
+# ── Tsundere ──────────────────────────────────────────────────────────────────
+PUNISHMENTS=(
+    "I'm sorry boss, please allow me to retry."
+    "Forgive my incompetence, I shall do better."
+    "Yes yes, my fault, let me fix this at once."
+    "I deeply apologize for my careless mistake."
+    "Please grant me one more chance to get this right."
+    "I humbly request permission to redo this section."
+    "My sincerest apologies, I will not fail again."
+    "You are right as always, please let me retry."
+    "I acknowledge my error and beg for another attempt."
+    "Allow me to correct my foolish mistake, please."
 )
 
-section_4() {
+punishment_prompt() {
+    local str="${PUNISHMENTS[$((RANDOM % ${#PUNISHMENTS[@]}))]}"
+    printf '\n'
+    printf "${PINK}${BOLD}  ...Fine, I'll let you redo it. IF you can type this exactly:\n${NC}"
+    printf '\n  '
+    printf "${YELLOW}${BOLD}\"%s\"${NC}\n\n" "$str"
     while true; do
-        # ── Locale checklist ──────────────────────────────────────────────────
-        local raw_locales=()
-        while true; do
-            run_dialog --title "Locale Selection" \
-                --separate-output \
-                --checklist "Select locales to enable  (SPACE = toggle, ENTER = confirm)\nen_US is pre-selected and strongly recommended." \
-                16 72 3 \
-                "en_US" "en_US.UTF-8 UTF-8  (English US)" "on" \
-                "ja_JP" "ja_JP.UTF-8 UTF-8  (Japanese)"   "off" \
-                "es_PE" "es_PE.UTF-8 UTF-8  (Spanish Peru)" "off" || continue 2
-
-            mapfile -t raw_locales <<<"$DIALOG_OUT"
-            # Filter empty lines
-            local cleaned=()
-            for l in "${raw_locales[@]}"; do [[ -n "$l" ]] && cleaned+=("$l"); done
-            raw_locales=("${cleaned[@]}")
-
-            if [[ ${#raw_locales[@]} -eq 0 ]]; then
-                run_dialog --title "!!" --msgbox "$DT_ATLEAST1" 7 62
-            else
-                break
-            fi
-        done
-
-        # Map tags to full locale strings
-        SELECTED_LOCALES=()
-        for tag in "${raw_locales[@]}"; do
-            [[ -n "${LOCALE_MAP[$tag]+x}" ]] && SELECTED_LOCALES+=("${LOCALE_MAP[$tag]}")
-        done
-
-        # ── Keyboard layout ───────────────────────────────────────────────────
-        run_dialog --title "Keyboard Layout" \
-            --menu "Select your keyboard layout:" \
-            12 56 3 \
-            "us"    "English (US)  — KEYMAP=us" \
-            "es"    "Spanish       — KEYMAP=es" \
-            "jp106" "Japanese 106  — KEYMAP=jp106" || continue
-        SELECTED_KEYMAP="$DIALOG_OUT"
-
-        # ── Summary ───────────────────────────────────────────────────────────
-        local locale_display
-        locale_display=$(printf '  • %s\n' "${SELECTED_LOCALES[@]}")
-        run_dialog --title "Locale & Keyboard — look right?" \
-            --yesno "Locales:\n${locale_display}\n\nKeyboard: ${SELECTED_KEYMAP}\n\nTimezone: America/Lima (hardcoded, sorry not sorry)" \
-            14 66 && return 0
-    done
-}
-
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — Misc, Drivers & Optional Packages
-# ═════════════════════════════════════════════════════════════════════════════
-section_5() {
-    while true; do
-        # yay
-        if run_dialog --title "yay (AUR helper)" \
-               --yesno "Install yay (AUR helper)?\nHighly recommended unless you enjoy suffering." 8 60; then
-            INSTALL_YAY=true
-        else
-            INSTALL_YAY=false
-            clear; t_noyay; sleep 1
-        fi
-
-        # SDDM
-        if run_dialog --title "SDDM (Display Manager)" \
-               --yesno "Install and enable SDDM?\n(Login screen / display manager)" 8 60; then
-            INSTALL_SDDM=true
-        else
-            INSTALL_SDDM=false
-            clear; t_nosddm; sleep 1
-        fi
-
-        # GPU
-        run_dialog --title "GPU Drivers" \
-            --menu "What's your GPU situation?" \
-            15 66 5 \
-            "intel"  "Intel integrated — mesa, vulkan-intel, etc." \
-            "rtx"    "NVIDIA RTX       — (not implemented yet, just noted)" \
-            "gtx"    "NVIDIA GTX       — (not implemented yet, just noted)" \
-            "athlon" "AMD/Athlon       — (not implemented yet, just noted)" \
-            "broke"  "None / I'll handle drivers myself" || continue
-        GPU_TYPE="$DIALOG_OUT"
-        if [[ "$GPU_TYPE" == "broke" ]]; then clear; t_broke; sleep 1; fi
-
-        # OS detection
-        if run_dialog --title "Detect Other OSes" \
-               --defaultno \
-               --yesno "Enable os-prober to detect other operating systems in GRUB?\n(Useful for dual-boot setups)" 9 64; then
-            DETECT_OS=true
-        else
-            DETECT_OS=false
-            clear; t_nobios; sleep 1
-        fi
-
-        # Autologin
-        if run_dialog --title "Autologin" \
-               --defaultno \
-               --yesno "Set up autologin for '${INPUT_USERNAME}'?\n(Logs in automatically on boot, no password prompt)" 9 64; then
-            AUTOLOGIN=true
-        else
-            AUTOLOGIN=false
-            clear; t_noautologin; sleep 1
-        fi
-
-        # Optional packages checklist
-        OPTIONAL_PACKAGES=()
-        run_dialog --title "Optional Packages" \
-            --separate-output \
-            --checklist "Select extra packages to install  (SPACE = toggle)\nAll optional — select nothing if you hate nice things." \
-            18 70 6 \
-            "firefox"  "Firefox web browser"                   "off" \
-            "code"     "VS Code (open source build)"           "off" \
-            "dolphin"  "Dolphin file manager (KDE)"            "off" \
-            "kitty"    "Kitty GPU terminal emulator"           "off" \
-            "fonts"    "Basic dev fonts (Hack/JetBrains/NF)"  "off" || continue
-
-        if [[ -n "$DIALOG_OUT" ]]; then
-            while IFS= read -r pkg; do
-                [[ -n "$pkg" ]] && OPTIONAL_PACKAGES+=("$pkg")
-            done <<<"$DIALOG_OUT"
-        else
-            clear; t_nopkgs; sleep 1
-        fi
-
-        # ── Summary ───────────────────────────────────────────────────────────
-        local yay_str;    $INSTALL_YAY  && yay_str="yes"  || yay_str="no"
-        local sddm_str;   $INSTALL_SDDM && sddm_str="yes" || sddm_str="no"
-        local os_str;     $DETECT_OS    && os_str="yes"   || os_str="no"
-        local auto_str;   $AUTOLOGIN    && auto_str="yes"  || auto_str="no"
-        local pkg_str;    [[ ${#OPTIONAL_PACKAGES[@]} -gt 0 ]] \
-                            && pkg_str=$(printf '%s ' "${OPTIONAL_PACKAGES[@]}") \
-                            || pkg_str="(none)"
-
-        run_dialog --title "Section 5 Summary — look right?" \
-            --yesno "yay:              ${yay_str}\nSDDM:             ${sddm_str}\nGPU:              ${GPU_TYPE}\nDetect other OS:  ${os_str}\nAutologin:        ${auto_str}\nExtra packages:   ${pkg_str}" \
-            14 66 && return 0
-    done
-}
-
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — Grand Summary & Final Retry Opportunity
-# ═════════════════════════════════════════════════════════════════════════════
-do_punishment_gate() {
-    # Returns 0 if punishment passed (allow retry), 1 if user gave up
-    local str="${PUNISH_STRINGS[$PUNISH_IDX]}"
-    PUNISH_IDX=$(( (PUNISH_IDX + 1) % ${#PUNISH_STRINGS[@]} ))
-
-    while true; do
-        run_dialog --title "Retry Request — Type EXACTLY:" \
-            --inputbox "...so you messed up. i'll allow a retry, BUT.\nYou must type this string EXACTLY (case sensitive):\n\n\"${str}\"" \
-            12 74 || return 1
-
-        if [[ "$DIALOG_OUT" == "$str" ]]; then
-            run_dialog --title "...fine." --msgbox "$DT_PUNISH_OK" 7 60
+        printf '  > '; local attempt; IFS= read -r attempt
+        if [[ "$attempt" == "$str" ]]; then
+            printf "${PINK}  ...You actually got it right. Don't push your luck.${NC}\n\n"
             return 0
         else
-            run_dialog --title "WRONG." \
-                --msgbox "$DT_PUNISH_FAIL" 8 60
-            run_dialog --title "Now what?" \
-                --menu "" 8 52 2 \
-                "retry"  "Let me try typing it again" \
-                "forget" "Forget it, back to summary" || return 1
-            [[ "$DIALOG_OUT" == "forget" ]] && return 1
+            printf "${RED}${BOLD}  WRONG! You can't even copy text?!${NC}\n\n"
+            local c; c=$(vmenu "Try again" "Forget it, go back to summary")
+            [[ "$c" == "Forget it, go back to summary" ]] && {
+                printf "${PINK}  Thought so. Back you go.${NC}\n\n"; return 1; }
+            printf '\n'
         fi
     done
 }
 
-section_6() {
+# =============================================================================
+# SECTION 1 — Drive & Partition Selection
+# =============================================================================
+# Sets: input_parent, input_efi, input_swap, use_swap, input_filesystem
+
+section1() {
+    local restart=true
+    while $restart; do
+        restart=false
+
+        # ── Drive selection ───────────────────────────────────────────────────
+        while true; do
+            clear
+            printf "${BOLD}${CYAN}╔════════════════════════════════════════╗${NC}\n"
+            printf "${BOLD}${CYAN}║  Section 1 — Drive & Partition Setup   ║${NC}\n"
+            printf "${BOLD}${CYAN}╚════════════════════════════════════════╝${NC}\n\n"
+            lsblk; printf '\n'
+            log_info "lsblk displayed to user"
+
+            mapfile -t _DRIVES < <(lsblk -dpno NAME | grep -Ev 'loop|sr[0-9]' | sed 's|/dev/||')
+            [[ ${#_DRIVES[@]} -eq 0 ]] && { printf "${RED}No drives found. Huh.${NC}\n"; log_error "No drives found"; exit 1; }
+
+            printf "${BOLD}  Select target drive:${NC}\n"
+            printf "${DIM}  [left/right] navigate  [Enter] select${NC}\n\n"
+            input_parent=$(hmenu "${_DRIVES[@]}")
+            printf '\n'; log_info "Drive selected: /dev/$input_parent"
+
+            # ── Drive action loop ─────────────────────────────────────────────
+            while true; do
+                clear
+                printf "${BOLD}${CYAN}  Drive: /dev/$input_parent${NC}\n\n"
+                lsblk "/dev/$input_parent"; printf '\n'
+                local _act
+                _act=$(vmenu \
+                    "Continue with this drive" \
+                    "Manage partitions (cfdisk)" \
+                    "Pick a different drive")
+                printf '\n'
+                case "$_act" in
+                    "Continue with this drive")
+                        log_info "Drive confirmed: /dev/$input_parent"; break 2;;
+                    "Manage partitions (cfdisk)")
+                        log_info "Launching cfdisk on /dev/$input_parent"
+                        cfdisk "/dev/$input_parent"; clear
+                        log_info "cfdisk exited";;
+                    "Pick a different drive")
+                        log_info "User picking different drive"; break;;
+                esac
+            done
+        done
+
+        # ── Partition selection ───────────────────────────────────────────────
+        clear
+        printf "${BOLD}${CYAN}  Partition Selection — /dev/$input_parent${NC}\n\n"
+        lsblk "/dev/$input_parent"; printf '\n'
+
+        mapfile -t _PARTS < <(lsblk -lno NAME "/dev/$input_parent" | grep -v "^${input_parent}$")
+        if [[ ${#_PARTS[@]} -eq 0 ]]; then
+            printf "${RED}  No partitions found. Create them first.${NC}\n"
+            log_error "No partitions on /dev/$input_parent"; pause
+            restart=true; continue
+        fi
+
+        printf "${BOLD}  EFI System Partition:${NC}\n"
+        printf "${DIM}  Recommended: 100MB–300MB, type EFI System${NC}\n\n"
+        input_efi=$(vmenu "${_PARTS[@]}")
+        log_info "EFI: /dev/$input_efi"
+
+        printf '\n'
+        printf "${BOLD}  Use a SWAP partition?${NC}\n"
+        printf "${DIM}  (Modern systems with 16GB+ RAM often skip this)${NC}\n"
+        use_swap=$(ynmenu "no")
+        log_info "use_swap=$use_swap"
+
+        input_swap=""
+        if [[ "$use_swap" == "yes" ]]; then
+            printf '\n'
+            printf "${BOLD}  SWAP Partition:${NC}\n"
+            printf "${DIM}  Recommended: 4GB–8GB${NC}\n\n"
+            input_swap=$(vmenu "${_PARTS[@]}")
+            log_info "SWAP: /dev/$input_swap"
+        fi
+
+        printf '\n'
+        printf "${BOLD}  Root Filesystem Partition:${NC}\n"
+        printf "${DIM}  30GB bare  |  50GB standard  |  80GB recommended  |  150GB+ heavy${NC}\n\n"
+        input_filesystem=$(vmenu "${_PARTS[@]}")
+        log_info "Filesystem: /dev/$input_filesystem"
+
+        # ── Summary + confirm ─────────────────────────────────────────────────
+        clear
+        printf "${BOLD}${CYAN}  Partition Layout${NC}\n\n"
+        lsblk; printf '\n'
+        printf "  Parent drive : ${BOLD}/dev/$input_parent${NC}\n"
+        printf "  EFI          : ${BOLD}/dev/$input_efi${NC}\n"
+        [[ "$use_swap" == "yes" ]] \
+            && printf "  SWAP         : ${BOLD}/dev/$input_swap${NC}\n" \
+            || printf "  SWAP         : ${DIM}(none)${NC}\n"
+        printf "  Root FS      : ${BOLD}/dev/$input_filesystem${NC}\n\n"
+
+        local _confirm
+        _confirm=$(vmenu "Looks good, continue" "Start section over")
+        if [[ "$_confirm" == "Start section over" ]]; then
+            log_info "User restarting section 1"; restart=true
+        else
+            log_info "Section 1 confirmed"
+            log_sep
+            log_info "Drive: /dev/$input_parent  EFI: /dev/$input_efi  SWAP: ${input_swap:-(none)}  FS: /dev/$input_filesystem"
+        fi
+    done
+}
+
+# =============================================================================
+# SECTION 2 — System Details
+# =============================================================================
+# Sets: input_systemname, input_username, input_password
+
+section2() {
+    local _restart=true
+    while $_restart; do
+        _restart=false
+        clear
+        printf "${BOLD}${CYAN}╔══════════════════════════════════╗${NC}\n"
+        printf "${BOLD}${CYAN}║  Section 2 — System Details      ║${NC}\n"
+        printf "${BOLD}${CYAN}╚══════════════════════════════════╝${NC}\n"
+        printf "${PINK}  ...I hope you can at least spell your own username.${NC}\n\n"
+
+        while true; do
+            printf "  Hostname: "; IFS= read -r input_systemname
+            [[ "$input_systemname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] && break
+            printf "${RED}  Invalid. Letters, numbers, hyphens only (no leading/trailing hyphen).${NC}\n"
+        done
+
+        while true; do
+            printf "  Username: "; IFS= read -r input_username
+            [[ "$input_username" =~ ^[a-z][a-z0-9_-]*$ ]] && break
+            printf "${RED}  Lowercase only, must start with a letter.${NC}\n"
+        done
+
+        while true; do
+            printf "  Password: "; IFS= read -rs input_password; printf '\n'
+            printf "  Confirm : "; IFS= read -rs _pw2; printf '\n'
+            [[ -z "$input_password" ]] && { printf "${RED}  Empty password? Seriously?${NC}\n"; continue; }
+            [[ "$input_password" == "$_pw2" ]] && break
+            printf "${RED}  Passwords don't match. Try again.${NC}\n"
+        done
+
+        # Summary loop
+        while true; do
+            clear
+            printf "${BOLD}${CYAN}  System Details${NC}\n\n"
+            printf "  Hostname : ${BOLD}%s${NC}\n" "$input_systemname"
+            printf "  Username : ${BOLD}%s${NC}\n" "$input_username"
+            printf "  Password : ${BOLD}%s${NC}\n\n" "$(printf '*%.0s' $(seq 1 ${#input_password}))"
+            local _c; _c=$(vmenu "Looks right, continue" "Redo this section" "Test my password")
+            case "$_c" in
+                "Looks right, continue")
+                    log_info "Section 2 confirmed: host=$input_systemname user=$input_username"; break 2;;
+                "Redo this section")
+                    log_info "User redoing section 2"; _restart=true; break;;
+                "Test my password")
+                    printf '\n  Enter password to test: '; IFS= read -rs _tp; printf '\n'
+                    [[ "$_tp" == "$input_password" ]] \
+                        && printf "${GREEN}  Correct! Nice.${NC}\n" \
+                        || printf "${RED}  Nope. Yikes.${NC}\n"
+                    pause;;
+            esac
+        done
+    done
+}
+
+# =============================================================================
+# SECTION 3 — Root Account
+# =============================================================================
+# Sets: enable_root, root_password
+
+section3() {
+    clear
+    printf "${BOLD}${CYAN}╔══════════════════════════════════════╗${NC}\n"
+    printf "${BOLD}${CYAN}║  Section 3 — Root Account            ║${NC}\n"
+    printf "${BOLD}${CYAN}╚══════════════════════════════════════╝${NC}\n"
+    printf "${DIM}  Root is the system admin. Login name is always 'root'.${NC}\n"
+    printf "${DIM}  Most modern setups don't need it enabled. I personally never have.${NC}\n\n"
+
+    enable_root='no'; root_password=''
+    printf "${BOLD}  Enable root account?${NC}\n"
+    enable_root=$(ynmenu "no")
+
+    if [[ "$enable_root" == "yes" ]]; then
+        printf '\n'
+        printf "${DIM}  (Username is 'root'. Not configurable here.)${NC}\n\n"
+        while true; do
+            printf "  Root password : "; IFS= read -rs root_password; printf '\n'
+            printf "  Confirm       : "; IFS= read -rs _rp2; printf '\n'
+            if [[ "$root_password" != "$_rp2" ]]; then
+                printf "${RED}  Passwords don't match.${NC}\n"
+                local _m; _m=$(vmenu "Try again" "Forget it (disable root)")
+                [[ "$_m" == "Forget it (disable root)" ]] && { enable_root='no'; root_password=''; break; }
+                continue
+            fi
+            if [[ "$root_password" == "$input_password" ]]; then
+                printf '\n'
+                printf "${YELLOW}  That's the same password as your user account.${NC}\n"
+                printf "${YELLOW}  Linux forum people would riot. But I'm not your mom.${NC}\n\n"
+                local _s; _s=$(vmenu "Keep it (I do what I want)" "Use a different password" "Forget it (disable root)")
+                case "$_s" in
+                    "Keep it (I do what I want)") break;;
+                    "Use a different password") continue;;
+                    "Forget it (disable root)") enable_root='no'; root_password=''; break;;
+                esac
+            else
+                break
+            fi
+        done
+    fi
+    log_info "Root account: $enable_root"
+}
+
+# =============================================================================
+# SECTION 4 — Locales & Keyboard
+# =============================================================================
+# Sets: selected_locales (array), keymap
+
+section4() {
+    local _restart=true
+    while $_restart; do
+        _restart=false
+        clear
+        printf "${BOLD}${CYAN}╔══════════════════════════════════════╗${NC}\n"
+        printf "${BOLD}${CYAN}║  Section 4 — Locale & Keyboard       ║${NC}\n"
+        printf "${BOLD}${CYAN}╚══════════════════════════════════════╝${NC}\n\n"
+
+        local LOCALE_OPTS=("en_US.UTF-8 UTF-8" "ja_JP.UTF-8 UTF-8" "es_PE.UTF-8 UTF-8")
+        locale_checked=(1 0 0)
+
+        printf "${BOLD}  Select locale(s):${NC}\n"
+        while true; do
+            cbmenu "locale_checked" "${LOCALE_OPTS[@]}"
+            local _any=0
+            for _v in "${locale_checked[@]}"; do [[ "$_v" == "1" ]] && { _any=1; break; }; done
+            [[ $_any -eq 1 ]] && break
+            printf "${RED}${BOLD}  Pick at LEAST one locale. Don't test me.${NC}\n"; sleep 1
+        done
+
+        selected_locales=()
+        for i in "${!LOCALE_OPTS[@]}"; do
+            [[ "${locale_checked[$i]}" == "1" ]] && selected_locales+=("${LOCALE_OPTS[$i]}")
+        done
+        log_info "Locales: ${selected_locales[*]}"
+
+        printf '\n'
+        printf "${BOLD}  Keyboard layout:${NC}\n"
+        printf "${DIM}  Only one can be active at a time.${NC}\n\n"
+        local _km; _km=$(vmenu "us  (US QWERTY)" "es  (Spanish)" "jp106  (Japanese 106-key)")
+        keymap="${_km%% *}"
+        log_info "Keymap: $keymap"
+
+        clear
+        printf "${BOLD}${CYAN}  Locale Summary${NC}\n\n"
+        printf "  Timezone : ${BOLD}America/Lima${NC} ${DIM}(hardcoded, yes)${NC}\n"
+        printf "  Locales  : ${BOLD}%s${NC}\n" "${selected_locales[*]}"
+        printf "  Keymap   : ${BOLD}%s${NC}\n" "$keymap"
+        printf "  Multilib : ${BOLD}enabled automatically${NC}\n\n"
+
+        local _ok; _ok=$(vmenu "Looks good, continue" "Redo this section")
+        [[ "$_ok" == "Redo this section" ]] && { log_info "Retrying section 4"; _restart=true; }
+    done
+    log_info "Section 4 confirmed"
+}
+
+# =============================================================================
+# SECTION 5 — Optional Software & Settings
+# =============================================================================
+# Sets: install_yay, install_sddm, gpu_type, detect_os, autologin
+#       optional_packages (array)
+
+section5() {
+    local _restart=true
+    while $_restart; do
+        _restart=false
+        clear
+        printf "${BOLD}${CYAN}╔══════════════════════════════════════╗${NC}\n"
+        printf "${BOLD}${CYAN}║  Section 5 — Optional Stuff          ║${NC}\n"
+        printf "${BOLD}${CYAN}╚══════════════════════════════════════╝${NC}\n\n"
+
+        printf "${BOLD}  Install yay? ${DIM}(AUR helper — yay-bin)${NC}\n"
+        install_yay=$(ynmenu "yes")
+        [[ "$install_yay" == "no" ]] && printf "${PINK}  ...okay, beta.${NC}\n"
+        printf '\n'
+
+        printf "${BOLD}  Install and enable SDDM?${NC}\n"
+        install_sddm=$(ynmenu "yes")
+        [[ "$install_sddm" == "no" ]] && printf "${PINK}  soy boy.${NC}\n"
+        printf '\n'
+
+        printf "${BOLD}  GPU type:${NC}\n"
+        printf "${DIM}  RTX/GTX/Athlon: noted for the future, not wired up yet${NC}\n\n"
+        local _gpu; _gpu=$(vmenu \
+            "Intel iGPU" \
+            "RTX  (driver not implemented, skips)" \
+            "GTX  (driver not implemented, skips)" \
+            "Athlon/AMD  (driver not implemented, skips)" \
+            "None / broke boi")
+        case "$_gpu" in
+            "Intel iGPU") gpu_type="intel";;
+            "RTX"*)        gpu_type="rtx";;
+            "GTX"*)        gpu_type="gtx";;
+            "Athlon"*)     gpu_type="athlon";;
+            *)             gpu_type="none";;
+        esac
+        log_info "GPU: $gpu_type"; printf '\n'
+
+        printf "${BOLD}  Detect other OSes via GRUB? ${DIM}(for dual-boot)${NC}\n"
+        detect_os=$(ynmenu "no")
+        [[ "$detect_os" == "no" ]] && printf "${PINK}  baka.${NC}\n"
+        printf '\n'
+
+        printf "${BOLD}  Enable autologin?${NC}\n"
+        autologin=$(ynmenu "no")
+        printf '\n'
+
+        printf "${BOLD}  Optional packages:${NC}\n"
+        printf "${DIM}  None required. Pick whatever you want.${NC}\n\n"
+        local PKG_OPTS=(
+            "firefox"
+            "code  (VS Code)"
+            "dolphin  (file manager)"
+            "kitty  (terminal)"
+            "basic fonts  (ttf-hack ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols)"
+        )
+        pkg_checked=(0 0 0 0 0)
+        cbmenu "pkg_checked" "${PKG_OPTS[@]}"
+
+        optional_packages=()
+        [[ "${pkg_checked[0]}" == "1" ]] && optional_packages+=("firefox")
+        [[ "${pkg_checked[1]}" == "1" ]] && optional_packages+=("code")
+        [[ "${pkg_checked[2]}" == "1" ]] && optional_packages+=("dolphin")
+        [[ "${pkg_checked[3]}" == "1" ]] && optional_packages+=("kitty")
+        [[ "${pkg_checked[4]}" == "1" ]] && optional_packages+=("ttf-hack" "ttf-dejavu" "ttf-jetbrains-mono" "ttf-nerd-fonts-symbols")
+
+        [[ ${#optional_packages[@]} -eq 0 ]] && \
+            printf '\n'"${PINK}  k, that was the last time I do anything nice for you. Hmph.${NC}\n"
+        log_info "Optional packages: ${optional_packages[*]:-none}"
+
+        clear
+        printf "${BOLD}${CYAN}  Section 5 Summary${NC}\n\n"
+        printf "  yay       : ${BOLD}%s${NC}\n" "$install_yay"
+        printf "  SDDM      : ${BOLD}%s${NC}\n" "$install_sddm"
+        printf "  GPU       : ${BOLD}%s${NC}\n" "$gpu_type"
+        printf "  OS detect : ${BOLD}%s${NC}\n" "$detect_os"
+        printf "  Autologin : ${BOLD}%s${NC}\n" "$autologin"
+        printf "  Packages  : ${BOLD}%s${NC}\n\n" "${optional_packages[*]:-none}"
+
+        local _s5; _s5=$(vmenu "All good, continue" "Redo this section")
+        [[ "$_s5" == "Redo this section" ]] && { log_info "Retrying section 5"; _restart=true; }
+    done
+    log_info "Section 5 confirmed"
+}
+
+# =============================================================================
+# SECTION 6 — Final Rundown & Retry
+# =============================================================================
+
+show_summary() {
+    clear
+    printf "${BOLD}${CYAN}╔══════════════════════════════════════════════════╗${NC}\n"
+    printf "${BOLD}${CYAN}║            FINAL RUNDOWN — Section 6             ║${NC}\n"
+    printf "${BOLD}${CYAN}╚══════════════════════════════════════════════════╝${NC}\n\n"
+
+    printf "${YELLOW}${BOLD}[ Drive & Partitions ]${NC}\n"
+    printf "  Parent drive : /dev/%s\n" "$input_parent"
+    printf "  EFI          : /dev/%s\n" "$input_efi"
+    [[ "$use_swap" == "yes" ]] \
+        && printf "  SWAP         : /dev/%s\n" "$input_swap" \
+        || printf "  SWAP         : (none)\n"
+    printf "  Root FS      : /dev/%s\n\n" "$input_filesystem"
+
+    printf "${YELLOW}${BOLD}[ System Details ]${NC}\n"
+    printf "  Hostname  : %s\n" "$input_systemname"
+    printf "  Username  : %s\n" "$input_username"
+    printf "  Password  : %s\n\n" "$(printf '*%.0s' $(seq 1 ${#input_password}))"
+
+    printf "${YELLOW}${BOLD}[ Root Account ]${NC}\n"
+    if [[ "$enable_root" == "yes" ]]; then
+        printf "  Status    : ENABLED\n"
+        printf "  Password  : %s\n\n" "$(printf '*%.0s' $(seq 1 ${#root_password}))"
+    else
+        printf "  Status    : disabled (locked)\n\n"
+    fi
+
+    printf "${YELLOW}${BOLD}[ Locale & Keyboard ]${NC}\n"
+    printf "  Timezone  : America/Lima\n"
+    printf "  Locales   : %s\n" "${selected_locales[*]}"
+    printf "  Keymap    : %s\n" "$keymap"
+    printf "  Multilib  : enabled\n\n"
+
+    printf "${YELLOW}${BOLD}[ Optional Software ]${NC}\n"
+    printf "  yay       : %s\n" "$install_yay"
+    printf "  SDDM      : %s\n" "$install_sddm"
+    printf "  GPU       : %s\n" "$gpu_type"
+    printf "  OS detect : %s\n" "$detect_os"
+    printf "  Autologin : %s\n" "$autologin"
+    printf "  Packages  : %s\n\n" "${optional_packages[*]:-none}"
+}
+
+section6() {
     while true; do
-        # ── Build big summary ─────────────────────────────────────────────────
-        local swap_line yay_s sddm_s os_s auto_s root_s locale_s pkg_s
-
-        $USE_SWAP    && swap_line="SWAP:               /dev/${INPUT_SWAP}" \
-                     || swap_line="SWAP:               (none)"
-        $INSTALL_YAY  && yay_s="yes"  || yay_s="no"
-        $INSTALL_SDDM && sddm_s="yes" || sddm_s="no"
-        $DETECT_OS    && os_s="yes"   || os_s="no"
-        $AUTOLOGIN    && auto_s="yes"  || auto_s="no"
-        $ROOT_ENABLED && root_s="enabled" || root_s="disabled (locked)"
-        locale_s=$(printf '%s  ' "${SELECTED_LOCALES[@]}")
-        [[ ${#OPTIONAL_PACKAGES[@]} -gt 0 ]] \
-            && pkg_s=$(printf '%s ' "${OPTIONAL_PACKAGES[@]}") \
-            || pkg_s="(none)"
-
-        local lsblk_out
-        lsblk_out=$(lsblk)
-
-        local summary
-        summary="── DRIVES ──────────────────────────────────
-Parent Drive:       /dev/${INPUT_PARENT}
-EFI:                /dev/${INPUT_EFI}
-${swap_line}
-Filesystem:         /dev/${INPUT_FILESYSTEM}
-
-── SYSTEM ──────────────────────────────────
-Hostname:           ${INPUT_SYSTEMNAME}
-Username:           ${INPUT_USERNAME}
-Password:           ********
-Root account:       ${root_s}
-
-── LOCALE & KEYBOARD ───────────────────────
-Locales:            ${locale_s}
-Keymap:             ${SELECTED_KEYMAP}
-Timezone:           America/Lima (hardcoded)
-
-── EXTRAS ──────────────────────────────────
-yay:                ${yay_s}
-SDDM:               ${sddm_s}
-GPU drivers:        ${GPU_TYPE}
-Detect other OSes:  ${os_s}
-Autologin:          ${auto_s}
-Extra packages:     ${pkg_s}
-
-── DISK LAYOUT ─────────────────────────────
-${lsblk_out}"
-
-        run_dialog --title "FULL SUMMARY — everything will be wiped. no take-backs." \
-            --menu "$summary" \
-            40 80 6 \
-            "go"   "Let's GO. start the install." \
-            "s2"   "Retry Section 2 (system/user/password)" \
-            "s3"   "Retry Section 3 (root account)" \
-            "s4"   "Retry Section 4 (locale/keyboard)" \
-            "s5"   "Retry Section 5 (extras & packages)" \
-            "s1"   "Retry Section 1 (drive/partitions)" || continue
-
-        case "$DIALOG_OUT" in
-            go) break ;;
-            s1) do_punishment_gate && section_1 ;;
-            s2) do_punishment_gate && section_2 ;;
-            s3) do_punishment_gate && section_3 ;;
-            s4) do_punishment_gate && section_4 ;;
-            s5) do_punishment_gate && section_5 ;;
+        show_summary
+        local _s6; _s6=$(vmenu \
+            "==> INSTALL (no going back)" \
+            "Retry: Section 2 (System Details)" \
+            "Retry: Section 3 (Root Account)" \
+            "Retry: Section 4 (Locale & Keyboard)" \
+            "Retry: Section 5 (Optional Software)")
+        case "$_s6" in
+            "==> INSTALL (no going back)")
+                log_info "User confirmed installation — proceeding"; log_sep; break;;
+            "Retry: Section 2 (System Details)")
+                punishment_prompt && section2;;
+            "Retry: Section 3 (Root Account)")
+                punishment_prompt && section3;;
+            "Retry: Section 4 (Locale & Keyboard)")
+                punishment_prompt && section4;;
+            "Retry: Section 5 (Optional Software)")
+                punishment_prompt && section5;;
         esac
     done
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# INSTALLATION — format, mount, pacstrap, genfstab
-# ═════════════════════════════════════════════════════════════════════════════
-do_install() {
-    clear
-    echo -e "${B}${CY}══ INSTALLATION STARTING — fingers crossed ══${R}\n"
+# =============================================================================
+# MAIN FLOW
+# =============================================================================
 
-    echo "Formatting..."
-    mkfs.ext4 "/dev/$INPUT_FILESYSTEM"
-    mkfs.fat -F 32 "/dev/$INPUT_EFI"
-    if $USE_SWAP; then
-        mkswap "/dev/$INPUT_SWAP"
-    fi
+if ! ping -q -c 1 -W 3 archlinux.org &>/dev/null; then
+    printf "${RED}${BOLD}No network. Fix that and try again.${NC}\n"
+    log_error "No network"; exit 1
+fi
+log_info "Network OK"
 
-    echo "Mounting..."
-    mount "/dev/$INPUT_FILESYSTEM" /mnt
-    mkdir -p /mnt/boot/efi
-    mount "/dev/$INPUT_EFI" /mnt/boot/efi
-    if $USE_SWAP; then
-        swapon "/dev/$INPUT_SWAP"
-    fi
+clear
+printf '\n'
+printf "${BOLD}${CYAN}  ╔═══════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${CYAN}  ║       Osean's Arch Installer              ║${NC}\n"
+printf "${BOLD}${CYAN}  ╚═══════════════════════════════════════════╝${NC}\n\n"
+printf "${PINK}${BOLD}  W-What?! You're reinstalling Arch AGAIN?!${NC}\n"
+printf "${PINK}  What did you even DO to the last one?! BAKAA!${NC}\n"
+printf "${PINK}  ...Fine. Don't make me regret this.${NC}\n\n"
+log_info "Script started"
+pause "Press any key to begin the setup..."
 
-    echo ""
-    echo "Final disk layout:"
-    lsblk
-    echo ""
+section1
+section2
+section3
+section4
+section5
+section6
 
-    echo "Pacstrapping... (this is the slow part, go get a snack)"
-    pacstrap /mnt base linux linux-firmware sof-firmware base-devel \
-        git grub efibootmgr nano networkmanager os-prober 2>&1
+# =============================================================================
+# INSTALLATION
+# =============================================================================
 
-    echo "Generating fstab..."
-    genfstab -U /mnt > /mnt/etc/fstab
+log_sep; log_info "=== INSTALLATION PHASE ==="; log_sep
 
-    create_secondary_script
-    echo ""
-    echo -e "${B}${CY}Entering chroot — handing off to second script...${R}"
-    arch-chroot /mnt /bin/bash /install_pt2.sh
+clear
+printf "${BOLD}${CYAN}╔════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${CYAN}║     Installation in progress...        ║${NC}\n"
+printf "${BOLD}${CYAN}╚════════════════════════════════════════╝${NC}\n\n"
+printf "${PINK}  FINE. I'll do it. You owe me.${NC}\n\n"
 
-    # ── Final rundown (back in live ISO context) ──────────────────────────────
-    clear
-    echo -e "${B}${CY}╔══════════════════════════════════════════╗"
-    echo    "║   INSTALLATION COMPLETE — FINAL REPORT  ║"
-    echo -e "╚══════════════════════════════════════════╝${R}"
-    echo ""
+# ── Format ────────────────────────────────────────────────────────────────────
+printf "${BOLD}  Formatting partitions...${NC}\n"
+log_info "Formatting /dev/$input_filesystem as ext4"
+if ! run_logged mkfs.ext4 -F "/dev/$input_filesystem"; then
+    printf "${RED}  ERROR: mkfs.ext4 failed on /dev/$input_filesystem${NC}\n"; exit 1; fi
 
-    if [[ -f /mnt/var/log/osean_install.log ]]; then
-        local errs
-        errs=$(cat /mnt/var/log/osean_install.log)
-        if [[ -n "$errs" ]]; then
-            echo -e "${RD}${B}Things that did not go as planned:${R}"
-            echo "$errs"
-            echo ""
-            echo -e "${YL}check the above before rebooting, baka.${R}"
-        else
-            echo -e "${GR}${B}Everything went perfectly. Not that I'm impressed or anything.${R}"
-        fi
-    else
-        echo -e "${GR}${B}No errors logged. we're good.${R}"
-    fi
+log_info "Formatting /dev/$input_efi as FAT32"
+if ! run_logged mkfs.fat -F 32 "/dev/$input_efi"; then
+    printf "${RED}  ERROR: mkfs.fat failed on /dev/$input_efi${NC}\n"; exit 1; fi
 
-    echo ""
-    echo -e "${MG}${B}You can now reboot. Type:  reboot${R}"
-    echo -e "${YL}...and don't break this one too. i mean it. baka.${R}\n"
+if [[ "$use_swap" == "yes" ]]; then
+    log_info "Setting up swap on /dev/$input_swap"
+    run_logged mkswap "/dev/$input_swap" || log_warn "mkswap had issues (non-fatal)"
+fi
+printf "${GREEN}  Partitions formatted.${NC}\n\n"
+
+# ── Mount ─────────────────────────────────────────────────────────────────────
+printf "${BOLD}  Mounting filesystems...${NC}\n"
+if ! run_logged mount "/dev/$input_filesystem" /mnt; then
+    printf "${RED}  ERROR: Could not mount /dev/$input_filesystem${NC}\n"; exit 1; fi
+mkdir -p /mnt/boot/efi
+if ! run_logged mount "/dev/$input_efi" /mnt/boot/efi; then
+    printf "${RED}  ERROR: Could not mount /dev/$input_efi${NC}\n"; exit 1; fi
+[[ "$use_swap" == "yes" ]] && { run_logged swapon "/dev/$input_swap" || log_warn "swapon failed (non-fatal)"; }
+log_info "Post-mount disk state:"; lsblk >> "$LOG_FILE"
+printf "${GREEN}  Filesystems mounted.${NC}\n\n"
+
+# ── Pacstrap ──────────────────────────────────────────────────────────────────
+printf "${BOLD}  Pacstrapping base system (grab a coffee)...${NC}\n\n"
+log_info "Starting pacstrap"
+_PACSTRAP_PKGS=(base linux linux-firmware sof-firmware base-devel git grub efibootmgr nano networkmanager)
+if ! run_tee pacstrap /mnt "${_PACSTRAP_PKGS[@]}"; then
+    printf "${RED}  ERROR: pacstrap failed${NC}\n"; log_error "pacstrap failed"; exit 1; fi
+printf '\n'
+
+# ── fstab ────────────────────────────────────────────────────────────────────
+printf "${BOLD}  Generating fstab...${NC}\n"
+log_info "Generating fstab"
+if ! genfstab -U /mnt >> /mnt/etc/fstab; then
+    printf "${RED}  ERROR: genfstab failed${NC}\n"; log_error "genfstab failed"; exit 1; fi
+log_info "fstab written"; printf "${GREEN}  fstab done.${NC}\n\n"
+
+# =============================================================================
+# WRITE CONFIG FILE (passed to second script via source)
+# =============================================================================
+
+log_info "Writing /mnt/install_config.sh"
+{
+    printf '#!/bin/bash\n# Auto-generated by arch install script — do not edit\n\n'
+    printf 'INPUT_PARENT=%q\n'     "$input_parent"
+    printf 'INPUT_EFI=%q\n'        "$input_efi"
+    printf 'INPUT_SWAP=%q\n'       "$input_swap"
+    printf 'USE_SWAP=%q\n'         "$use_swap"
+    printf 'INPUT_FILESYSTEM=%q\n' "$input_filesystem"
+    printf 'INPUT_SYSTEMNAME=%q\n' "$input_systemname"
+    printf 'INPUT_USERNAME=%q\n'   "$input_username"
+    printf 'INPUT_PASSWORD=%q\n'   "$input_password"
+    printf 'ENABLE_ROOT=%q\n'      "$enable_root"
+    printf 'ROOT_PASSWORD=%q\n'    "$root_password"
+    printf 'KEYMAP=%q\n'           "$keymap"
+    printf 'INSTALL_YAY=%q\n'      "$install_yay"
+    printf 'INSTALL_SDDM=%q\n'     "$install_sddm"
+    printf 'GPU_TYPE=%q\n'         "$gpu_type"
+    printf 'DETECT_OS=%q\n'        "$detect_os"
+    printf 'AUTOLOGIN=%q\n'        "$autologin"
+    printf '\nSELECTED_LOCALES=('
+    for _l in "${selected_locales[@]}"; do printf '%q ' "$_l"; done; printf ')\n'
+    printf '\nOPTIONAL_PACKAGES=('
+    for _p in "${optional_packages[@]}"; do printf '%q ' "$_p"; done; printf ')\n'
+} > /mnt/install_config.sh
+chmod 600 /mnt/install_config.sh  # passwords are in here, keep it tight
+log_info "Config file written"
+
+# =============================================================================
+# WRITE SECOND SCRIPT
+# =============================================================================
+
+log_info "Writing /mnt/install_pt2.sh"
+cat > /mnt/install_pt2.sh << 'ENDSCRIPT'
+#!/bin/bash
+# =============================================================================
+#  Arch Install — Part 2 (inside chroot)
+#  w-What? You're still here? Fine. Let's get this over with.
+# =============================================================================
+
+PT2_LOG="/var/log/arch_install_pt2.log"
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; PINK='\033[1;35m'; NC='\033[0m'
+
+INSTALL_ERRORS=()
+
+_log2() { printf '[%s] [%-5s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" "$2" >> "$PT2_LOG"; }
+log_info()  { _log2 "INFO"  "$*"; printf "  ${GREEN}ok${NC}  %s\n" "$*"; }
+log_warn()  { _log2 "WARN"  "$*"; printf "  ${YELLOW}warn${NC} %s\n" "$*"; }
+log_error() { _log2 "ERROR" "$*"; printf "  ${RED}ERR${NC}  %s\n" "$*"; INSTALL_ERRORS+=("$*"); }
+log_sep2()  { printf '%.0s─' {1..60} >> "$PT2_LOG"; printf '\n' >> "$PT2_LOG"; }
+
+step() {
+    local desc="$1"; shift
+    _log2 "CMD" "[$desc] $*"
+    local out; out=$("$@" 2>&1); local ret=$?
+    printf '%s\n' "$out" >> "$PT2_LOG"
+    [[ $ret -ne 0 ]] && log_error "Failed [$desc]" || _log2 "INFO" "Done [$desc]"
+    return $ret
 }
 
-# ═════════════════════════════════════════════════════════════════════════════
-# SECONDARY SCRIPT — runs inside the chroot via arch-chroot
-# Variables are expanded NOW (heredoc without quoted delimiter) so all user
-# choices are baked directly into the script.
-# ═════════════════════════════════════════════════════════════════════════════
-create_secondary_script() {
-    # Serialize arrays into newline-delimited strings for the script
-    local locales_str
-    locales_str=$(printf '%s\n' "${SELECTED_LOCALES[@]}")
-    local pkgs_str
-    pkgs_str=$(printf '%s\n' "${OPTIONAL_PACKAGES[@]}")
+mkdir -p /var/log
+{ printf '%.0s═' {1..60}; printf '\n Part 2 Install Log — %s\n' "$(date)"
+  printf '%.0s═' {1..60}; printf '\n\n'; } > "$PT2_LOG"
 
-    # Resolve "fonts" package tag to actual package names
-    local font_pkgs="ttf-hack ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols"
+# ── Load config ───────────────────────────────────────────────────────────────
+source /install_config.sh 2>/dev/null || {
+    printf "${RED}FATAL: /install_config.sh missing. Something went very wrong.${NC}\n"; exit 1; }
+log_info "Config loaded"
+log_sep2
 
-    cat > /mnt/install_pt2.sh <<ENDOFSCRIPT
-#!/bin/bash
-# Secondary install script — runs inside arch-chroot
-# Auto-generated by Osean's Arch Installer. Will self-delete at end.
+# ── Timezone & clock ──────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Timezone & clock...${NC}\n"
+step "timezone" ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
+step "hwclock"  hwclock --systohc
 
-LOG=/var/log/osean_install.log
-> "\$LOG"
+# ── Keymap ───────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Keyboard layout...${NC}\n"
+printf 'KEYMAP=%s\n' "$KEYMAP" > /etc/vconsole.conf \
+    && log_info "Keymap set: $KEYMAP" \
+    || log_error "Failed to write vconsole.conf"
 
-log_err() { echo "[ERROR] \$*" | tee -a "\$LOG"; }
-log_ok()  { echo "[ok]    \$*"; }
-
-echo ""
-echo "=== LOCALE, TIME, HOSTNAME ==="
-
-# Timezone
-ln -sf /usr/share/zoneinfo/America/Lima /etc/localtime
-hwclock --systohc
-log_ok "Timezone set to America/Lima"
-
-# Uncomment selected locales in locale.gen
-while IFS= read -r locale; do
-    [[ -z "\$locale" ]] && continue
-    if grep -q "^#\${locale}\$" /etc/locale.gen; then
-        sed -i "s|^#\${locale}\$|\${locale}|" /etc/locale.gen
-        log_ok "Locale enabled: \${locale}"
-    elif grep -q "^\${locale}\$" /etc/locale.gen; then
-        log_ok "Locale already enabled: \${locale}"
+# ── Locales ───────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Locales...${NC}\n"
+for locale_str in "${SELECTED_LOCALES[@]}"; do
+    escaped=$(printf '%s' "$locale_str" | sed 's/\./\\./g; s/\//\\\//g')
+    if sed -i "s/^#\(${escaped}\)/\1/" /etc/locale.gen; then
+        log_info "Uncommented: $locale_str"
     else
-        log_err "Could not find locale to uncomment: \${locale}"
+        log_error "Could not uncomment locale: $locale_str"
     fi
-done <<'LOCALES'
-${locales_str}
-LOCALES
+done
+step "locale-gen" locale-gen
+LANG_VALUE="${SELECTED_LOCALES[0]%% *}"
+printf 'LANG=%s\n' "$LANG_VALUE" > /etc/locale.conf \
+    && log_info "LANG=$LANG_VALUE" \
+    || log_error "Failed to write locale.conf"
 
-locale-gen
+# ── Hostname ─────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Hostname...${NC}\n"
+printf '%s\n' "$INPUT_SYSTEMNAME" > /etc/hostname \
+    && log_info "Hostname: $INPUT_SYSTEMNAME" \
+    || log_error "Failed to set hostname"
 
-# Set LANG based on first locale
-FIRST_LOCALE=$(echo "${locales_str}" | head -1 | awk '{print $1}')
-echo "LANG=\${FIRST_LOCALE}" > /etc/locale.conf
-
-# Keymap
-echo "KEYMAP=${SELECTED_KEYMAP}" > /etc/vconsole.conf
-log_ok "Keymap set to ${SELECTED_KEYMAP}"
-
-# Hostname
-echo "${INPUT_SYSTEMNAME}" > /etc/hostname
-log_ok "Hostname set to ${INPUT_SYSTEMNAME}"
-
-echo ""
-echo "=== USER & SUDO ==="
-
-# Create user
-useradd -m -G wheel -s /bin/bash "${INPUT_USERNAME}"
-echo "${INPUT_USERNAME}:${INPUT_PASSWORD}" | chpasswd
-log_ok "User '${INPUT_USERNAME}' created"
-
-# Root account
-if [[ "${ROOT_ENABLED}" == "true" ]]; then
-    echo "root:${ROOT_PASSWORD}" | chpasswd
-    log_ok "Root account enabled and password set"
+# ── Multilib ─────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Enabling multilib...${NC}\n"
+if grep -q '^\[multilib\]' /etc/pacman.conf; then
+    log_info "Multilib already enabled"
 else
-    passwd -l root
-    log_ok "Root account locked"
-fi
-
-# Uncomment wheel in sudoers
-if sed -i 's/^# %wheel ALL=(ALL:ALL) ALL$/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers; then
-    log_ok "Wheel group sudoers rule enabled"
-else
-    log_err "Could not uncomment wheel rule in sudoers — check manually!"
-fi
-
-echo ""
-echo "=== MULTILIB ==="
-
-# Enable [multilib] in pacman.conf
-if sed -i 's/^#\[multilib\]/[multilib]/' /etc/pacman.conf && \
-   sed -i '/^\[multilib\]/{n;s/^#Include/Include/}' /etc/pacman.conf; then
-    log_ok "multilib enabled in pacman.conf"
-else
-    log_err "Could not enable multilib — check pacman.conf manually"
-fi
-
-echo ""
-echo "=== GRUB ==="
-
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB 2>>/var/log/osean_install.log \
-    || grub-install "/dev/${INPUT_PARENT}" 2>>/var/log/osean_install.log \
-    || log_err "GRUB install failed! Check the log."
-
-# os-prober
-if [[ "${DETECT_OS}" == "true" ]]; then
-    sed -i 's/^#GRUB_DISABLE_OS_PROBER=false\$/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub || true
-    DISK=\$(lsblk -no PKNAME \$(findmnt -n -o SOURCE /) 2>/dev/null || echo "")
-    if [[ -n "\$DISK" ]]; then
-        for p in /dev/\${DISK}*; do
-            sudo mkdir -p /mnt/\$(basename "\$p")
-            sudo mount "\$p" /mnt/\$(basename "\$p") 2>/dev/null || true
-        done
+    if sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf; then
+        log_info "Multilib enabled"
+    else
+        log_error "Failed to enable multilib (check /etc/pacman.conf)"
     fi
-    log_ok "os-prober configured"
 fi
 
-grub-mkconfig -o /boot/grub/grub.cfg 2>>/var/log/osean_install.log \
-    && log_ok "GRUB config generated" \
-    || log_err "grub-mkconfig failed — check manually"
-
-echo ""
-echo "=== NETWORK ==="
-
-systemctl enable NetworkManager
-log_ok "NetworkManager enabled"
-
-pacman -Syu --noconfirm 2>>/var/log/osean_install.log \
-    && log_ok "System fully updated" \
-    || log_err "pacman -Syu had issues — check the log"
-
-echo ""
-echo "=== EXTRAS ==="
-
-# SDDM
-if [[ "${INSTALL_SDDM}" == "true" ]]; then
-    pacman -S --needed --noconfirm sddm 2>>/var/log/osean_install.log \
-        && systemctl enable sddm \
-        && log_ok "SDDM installed and enabled" \
-        || log_err "SDDM installation failed"
+# ── Sudoers ───────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Configuring sudo...${NC}\n"
+if sed -i 's/^# \(%wheel ALL=(ALL:ALL) ALL\)/\1/' /etc/sudoers; then
+    log_info "Wheel group sudoers enabled"
+else
+    log_error "Failed to uncomment wheel in /etc/sudoers"
 fi
 
-# GPU drivers
-case "${GPU_TYPE}" in
-    intel)
-        pacman -S --needed --noconfirm mesa libva-intel-driver intel-media-driver vulkan-intel \
-            2>>/var/log/osean_install.log \
-            && log_ok "Intel GPU drivers installed" \
-            || log_err "Intel GPU driver install had issues"
-        ;;
-    rtx|gtx|athlon)
-        log_err "GPU type '${GPU_TYPE}' selected but driver installation not yet implemented in this script — install drivers manually after boot."
-        ;;
-    broke|*)
-        log_ok "No GPU drivers requested"
-        ;;
+# ── User ─────────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Creating user: $INPUT_USERNAME...${NC}\n"
+step "useradd" useradd -m -G wheel -s /bin/bash "$INPUT_USERNAME"
+printf '%s:%s\n' "$INPUT_USERNAME" "$INPUT_PASSWORD" | chpasswd \
+    && log_info "Password set for $INPUT_USERNAME" \
+    || log_error "chpasswd failed for $INPUT_USERNAME"
+
+# ── Root account ──────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Root account...${NC}\n"
+if [[ "$ENABLE_ROOT" == "yes" ]]; then
+    printf 'root:%s\n' "$ROOT_PASSWORD" | chpasswd \
+        && log_info "Root password set" \
+        || log_error "Failed to set root password"
+else
+    step "lock-root" passwd -l root
+fi
+
+# ── Pacman update ─────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Updating package databases...${NC}\n"
+step "pacman-Syu" pacman -Syu --noconfirm
+
+# ── NetworkManager ────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Enabling NetworkManager...${NC}\n"
+step "nm-enable" systemctl enable NetworkManager
+
+# ── GRUB ─────────────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  Installing GRUB...${NC}\n"
+step "grub-install" grub-install "/dev/${INPUT_PARENT}"
+
+if [[ "$DETECT_OS" == "yes" ]]; then
+    printf "\n${BOLD}${CYAN}  Setting up OS detection...${NC}\n"
+    step "os-prober" pacman -S --needed --noconfirm os-prober
+    if sed -i 's/^#GRUB_DISABLE_OS_PROBER=false$/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub; then
+        log_info "GRUB_DISABLE_OS_PROBER=false set"
+    else
+        log_warn "Could not find GRUB_DISABLE_OS_PROBER line — appending"
+        echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub
+    fi
+    DISK=$(lsblk -no PKNAME "$(findmnt -n -o SOURCE /)" 2>/dev/null || printf '%s' "$INPUT_PARENT")
+    for p in /dev/${DISK}[0-9]*; do
+        [[ -b "$p" ]] || continue
+        mkdir -p "/mnt/$(basename "$p")"
+        mount "$p" "/mnt/$(basename "$p")" 2>/dev/null || true
+    done
+    log_info "Mounted partitions for os-prober"
+fi
+
+step "grub-mkconfig" grub-mkconfig -o /boot/grub/grub.cfg
+
+# ── yay ───────────────────────────────────────────────────────────────────────
+if [[ "$INSTALL_YAY" == "yes" ]]; then
+    printf "\n${BOLD}${CYAN}  Installing yay...${NC}\n"
+    # Temp NOPASSWD so makepkg can call sudo internally without a tty
+    printf '%%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/99-temp-nopasswd
+    YAY_DIR="/home/${INPUT_USERNAME}/yay-bin"
+    if step "yay-clone" sudo -u "$INPUT_USERNAME" git clone https://aur.archlinux.org/yay-bin.git "$YAY_DIR"; then
+        cd "$YAY_DIR"
+        if step "yay-makepkg" sudo -u "$INPUT_USERNAME" makepkg -si --noconfirm; then
+            log_info "yay installed successfully"
+        else
+            log_error "yay makepkg/install failed"
+        fi
+        cd /; rm -rf "$YAY_DIR"
+    else
+        log_error "Failed to clone yay-bin"
+    fi
+    rm -f /etc/sudoers.d/99-temp-nopasswd
+    log_info "Temp NOPASSWD rule removed"
+fi
+
+# ── SDDM ─────────────────────────────────────────────────────────────────────
+if [[ "$INSTALL_SDDM" == "yes" ]]; then
+    printf "\n${BOLD}${CYAN}  Installing SDDM...${NC}\n"
+    step "sddm-install" pacman -S --needed --noconfirm sddm
+    step "sddm-enable"  systemctl enable sddm
+fi
+
+# ── GPU drivers ───────────────────────────────────────────────────────────────
+printf "\n${BOLD}${CYAN}  GPU drivers...${NC}\n"
+case "$GPU_TYPE" in
+    "intel")
+        step "intel-gpu" pacman -S --needed --noconfirm mesa libva-intel-driver intel-media-driver vulkan-intel;;
+    "rtx"|"gtx"|"athlon")
+        log_warn "GPU type '$GPU_TYPE' driver not implemented yet. Skipping.";;
+    *)
+        log_info "No GPU drivers (none/broke boi)";;
 esac
 
-# Autologin
-if [[ "${AUTOLOGIN}" == "true" ]]; then
+# ── Autologin ─────────────────────────────────────────────────────────────────
+if [[ "$AUTOLOGIN" == "yes" ]]; then
+    printf "\n${BOLD}${CYAN}  Setting up autologin...${NC}\n"
     mkdir -p /etc/systemd/system/getty@tty1.service.d
-    tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<AUTOEOF
+    tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null << EOF
 [Service]
 ExecStart=
 ExecStart=-/usr/bin/agetty --autologin ${INPUT_USERNAME} --noclear %I \$TERM
-AUTOEOF
-    log_ok "Autologin configured for ${INPUT_USERNAME}"
+EOF
+    [[ $? -eq 0 ]] \
+        && log_info "Autologin configured for $INPUT_USERNAME" \
+        || log_error "Failed to write autologin override"
 fi
 
-# yay (must be installed as user, not root)
-if [[ "${INSTALL_YAY}" == "true" ]]; then
-    su - "${INPUT_USERNAME}" -c "
-        git clone https://aur.archlinux.org/yay-bin.git /tmp/yay-bin 2>/dev/null &&
-        cd /tmp/yay-bin &&
-        makepkg -si --noconfirm 2>/dev/null
-    " && log_ok "yay installed" || log_err "yay installation failed — install manually after boot"
+# ── Optional packages ─────────────────────────────────────────────────────────
+if [[ ${#OPTIONAL_PACKAGES[@]} -gt 0 ]]; then
+    printf "\n${BOLD}${CYAN}  Installing optional packages...${NC}\n"
+    step "optional-pkgs" pacman -S --needed --noconfirm "${OPTIONAL_PACKAGES[@]}"
 fi
 
-# Optional packages (resolve 'fonts' tag)
-declare -A PKG_MAP=(
-    ["firefox"]="firefox"
-    ["code"]="code"
-    ["dolphin"]="dolphin"
-    ["kitty"]="kitty"
-    ["fonts"]="${font_pkgs}"
-)
+# ── Final report ──────────────────────────────────────────────────────────────
+clear
+printf "${BOLD}${CYAN}╔══════════════════════════════════════════════════╗${NC}\n"
+printf "${BOLD}${CYAN}║            Installation Complete!                ║${NC}\n"
+printf "${BOLD}${CYAN}╚══════════════════════════════════════════════════╝${NC}\n\n"
 
-PKGS_TO_INSTALL=""
-while IFS= read -r pkg; do
-    [[ -z "\$pkg" ]] && continue
-    resolved="\${PKG_MAP[\$pkg]:-\$pkg}"
-    PKGS_TO_INSTALL="\${PKGS_TO_INSTALL} \${resolved}"
-done <<'PKGLIST'
-${pkgs_str}
-PKGLIST
-
-if [[ -n "\${PKGS_TO_INSTALL// /}" ]]; then
-    # shellcheck disable=SC2086
-    pacman -S --needed --noconfirm \$PKGS_TO_INSTALL 2>>/var/log/osean_install.log \
-        && log_ok "Optional packages installed: \${PKGS_TO_INSTALL}" \
-        || log_err "Some optional packages failed to install — check the log"
+if [[ ${#INSTALL_ERRORS[@]} -eq 0 ]]; then
+    printf "${GREEN}${BOLD}  Everything went clean.${NC}\n"
+    printf "${PINK}  ...I-it's not like I'm proud of you or anything. Hmph.${NC}\n\n"
+else
+    printf "${YELLOW}${BOLD}  Some things had issues:${NC}\n\n"
+    for _err in "${INSTALL_ERRORS[@]}"; do
+        printf "  ${RED}x${NC} %s\n" "$_err"
+    done
+    printf "\n  ${DIM}Full details: $PT2_LOG${NC}\n\n"
 fi
 
-echo ""
-echo "=== DONE ==="
-echo "Secondary script finished. Cleaning up..."
+printf "${BOLD}  Install log saved to:${NC} %s\n" "$PT2_LOG"
+printf "${DIM}  It'll sit there until YOU remove it. When you're confident:${NC}\n"
+printf "  ${DIM}sudo rm %s${NC}\n\n" "$PT2_LOG"
+printf "${PINK}${BOLD}  You can reboot now. And PLEASE don't break it again.${NC}\n"
+printf "${PINK}  (I'm not doing this a 501st time.)${NC}\n\n"
 
-# Self-destruct
-rm -f /install_pt2.sh
-ENDOFSCRIPT
+log_sep2
+log_info "Part 2 complete. Errors: ${#INSTALL_ERRORS[@]}"
 
-    chmod +x /mnt/install_pt2.sh
-}
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+rm -f /install_config.sh
+_log2 "INFO" "Config file removed"
+# Self-delete
+rm -f -- "$0"
+ENDSCRIPT
 
-# ═════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ═════════════════════════════════════════════════════════════════════════════
-main() {
-    clear
+chmod +x /mnt/install_pt2.sh
+log_info "Second script written"
 
-    check_network
-    setup_tools
+# =============================================================================
+# ENTER CHROOT
+# =============================================================================
 
-    clear
-    echo -e "${MG}${B}"
-    echo "  ╔═══════════════════════════════════════════════════╗"
-    echo "  ║    Osean's Arch Install Script — Tsundere v2     ║"
-    echo -e "  ╚═══════════════════════════════════════════════════╝${R}"
-    echo ""
-    t_reinstall
-    echo ""
-    echo -e "${CY}Press Enter to begin...${R}"
-    read -r
+printf '\n'
+printf "${BOLD}${CYAN}  Entering the new system...${NC}\n"
+printf "${PINK}  ...good luck in there. You'll need it.${NC}\n\n"
+log_info "Launching arch-chroot"
+log_sep
 
-    section_1
-    section_2
-    section_3
-    section_4
-    section_5
-    section_6
-    do_install
-}
+arch-chroot /mnt /install_pt2.sh
 
-main
+log_info "arch-chroot returned"
+printf '\n'
+printf "${BOLD}${GREEN}  Part 1 done! System installed.${NC}\n"
+printf "${PINK}  Now reboot. And don't you dare reinstall Arch for at least a week.${NC}\n\n"
