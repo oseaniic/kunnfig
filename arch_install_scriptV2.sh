@@ -245,7 +245,12 @@ section_1() {
             log "Swap partition: $SEL_SWAP"
         else
             USE_SWAP=0; SEL_SWAP=""
-            echo -e "${DIM}No swap. Living dangerously, I see.${NC}"
+            local -a _NO_SWAP_MSGS=(
+                "No swap. Interesting choice. Don't come crying to me when you run out of RAM."
+                "Fine. No swap. Living dangerously, I see. Your RAM had better be enough."
+                "No swap partition. Okay. Bold. Stupid, but bold."
+            )
+            echo -e "${DIM}${_NO_SWAP_MSGS[$RANDOM % ${#_NO_SWAP_MSGS[@]}]}${NC}"
         fi
 
         # ── Pick Filesystem ───────────────────────────────────────
@@ -284,34 +289,63 @@ section_2() {
     log_h "SECTION 2: User Details"
     local _confirm _test_pw _typed
 
+    # Random yell pools
+    local -a _HOST_YELLS=(
+        "UPPERCASE?! On a HOSTNAME?! Are you trying to give me an aneurysm?! Lowercase. Only. BAKAA!"
+        "What is THAT?! Special characters in a hostname?! Did you learn computers from a potato?! Try again!"
+        "N-No. No no no. Hostname has to be lowercase letters, numbers, and hyphens. That's IT. Do it RIGHT this time!"
+        "I can't BELIEVE you just typed that. Lowercase only! No spaces! No caps! Are you even trying?!"
+        "...I'm not even mad. I'm just disappointed. Lowercase. Numbers. Hyphens. That's literally all you have to do. TRY AGAIN."
+    )
+    local -a _USER_YELLS=(
+        "CAPITAL LETTERS?! In a USERNAME?! On ARCH?! Oh my god. LOWERCASE. ONLY. How are you even using a computer right now?!"
+        "Special characters?! That's not a username, that's a cry for help! Start with a letter, then lowercase/numbers/underscores/hyphens ONLY!"
+        "What did I JUST say?! Lowercase! Starts with a letter! No weird symbols! Are you doing this on purpose?! BAKAA!"
+        "...You know what, I'm not even surprised. Lowercase username. Starts with a letter. Just... try to be normal for five seconds."
+        "Absolutely not. That username looks like you sneezed on the keyboard. Lowercase. Letters and numbers. Hyphens. Underscores. Go."
+    )
+
     while true; do
         clear
         echo -e "${B}════ Section 2: Account Setup ════${NC}\n"
+        echo -e "${DIM}(Lowercase usernames and hostnames only — don't even think about capitals.)${NC}\n"
 
         # System name
         while true; do
             echo -ne "${Y}System hostname: ${NC}"; read -r SYS_NAME
-            [[ "$SYS_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] && break
-            echo -e "${R}Invalid hostname. Letters, numbers, hyphens, underscores only.${NC}"
+            [[ "$SYS_NAME" =~ ^[a-z][a-z0-9-]*$ ]] && break
+            echo -e "${R}${_HOST_YELLS[$RANDOM % ${#_HOST_YELLS[@]}]}${NC}"
+            echo ""
         done
 
         # Username
         while true; do
-            echo -ne "${Y}Username (lowercase only): ${NC}"; read -r USERNAME
+            echo -ne "${Y}Username: ${NC}"; read -r USERNAME
             [[ "$USERNAME" =~ ^[a-z][a-z0-9_-]*$ ]] && break
-            echo -e "${R}Invalid. Must start with a letter; lowercase letters/numbers/underscores/hyphens only.${NC}"
+            echo -e "${R}${_USER_YELLS[$RANDOM % ${#_USER_YELLS[@]}]}${NC}"
+            echo ""
         done
 
         # Password
+        local -a _PW_EMPTY_YELLS=(
+            "An EMPTY password?! What is WRONG with you?! Type something, ANYTHING!"
+            "...Did you just submit nothing? As a password?! Are you actually serious right now?!"
+            "No. Absolutely not. A blank password on a fresh Arch install is not a personality trait. TYPE. SOMETHING."
+        )
+        local -a _PW_MISMATCH_YELLS=(
+            "They don't match. You can't even type the same thing twice in a row. This is embarrassing. Try again."
+            "WRONG! The passwords don't match! How do you forget a password you literally just typed?! BAKAA!"
+            "...Of course they don't match. Of COURSE. Try again, slowly, with your eyes open this time."
+        )
         while true; do
             while true; do
                 echo -ne "${Y}Password: ${NC}"; read -rs USER_PASS; echo ""
                 [ -n "$USER_PASS" ] && break
-                echo -e "${R}Empty password? Really?! No.${NC}"
+                echo -e "${R}${_PW_EMPTY_YELLS[$RANDOM % ${#_PW_EMPTY_YELLS[@]}]}${NC}"
             done
             echo -ne "${Y}Confirm password: ${NC}"; read -rs _pw2; echo ""
             [ "$USER_PASS" = "$_pw2" ] && break
-            echo -e "${R}Passwords don't match. Try again, genius.${NC}"
+            echo -e "${R}${_PW_MISMATCH_YELLS[$RANDOM % ${#_PW_MISMATCH_YELLS[@]}]}${NC}"
         done
 
         # Confirm screen
@@ -326,13 +360,16 @@ section_2() {
             h_menu _confirm 0 "Yes, continue" "Retry" "Test my password"
 
             if   [ "$_confirm" = "Yes, continue" ]; then break 2
-            elif [ "$_confirm" = "Retry" ]; then break  # redo the inputs
+            elif [ "$_confirm" = "Retry" ]; then
+                echo -e "${DIM}...Again. Fine. Let's try this AGAIN.${NC}"; sleep 1; break
             elif [ "$_confirm" = "Test my password" ]; then
                 echo -ne "${Y}Type your password to test it: ${NC}"; read -rs _typed; echo ""
                 if [ "$_typed" = "$USER_PASS" ]; then
-                    echo -e "${G}✓ Password matches! Good job not breaking that too.${NC}"
+                    local -a _PW_OK=("✓ It matches. Good. I'm not impressed, that's the bare minimum." "✓ Correct! See? You CAN do things right when you try. Sometimes." "✓ Yep, that's it. ...Don't look so proud of yourself, it's a password.")
+                    echo -e "${G}${_PW_OK[$RANDOM % ${#_PW_OK[@]}]}${NC}"
                 else
-                    echo -e "${R}✗ Nope. That's wrong. How did you fail twice?${NC}"
+                    local -a _PW_BAD=("✗ WRONG! You literally set this two minutes ago! HOW?!" "✗ That's not it. ...Are you okay? Do you need help?" "✗ Nope. Not even close. This is painful to watch.")
+                    echo -e "${R}${_PW_BAD[$RANDOM % ${#_PW_BAD[@]}]}${NC}"
                 fi
                 sleep 2
             fi
@@ -352,7 +389,7 @@ section_3() {
     echo -e "${B}════ Section 3: Administrator (root) Account ════${NC}\n"
     echo -e "${DIM}The root account is the system administrator. Most modern setups keep it"
     echo -e "locked and use sudo instead. Personally, I've never once needed it enabled."
-    echo -e "Just saying.${NC}\n"
+    echo -e "Not once. In all the times you've made me do this. ...Just saying.${NC}\n"
     echo -e "${Y}Enable the root account?${NC}"
     h_menu _yn 1 "Yes" "No (recommended)"
 
@@ -364,11 +401,12 @@ section_3() {
             while true; do
                 echo -ne "${Y}Root password: ${NC}"; read -rs ROOT_PASS; echo ""
                 [ -n "$ROOT_PASS" ] && break
-                echo -e "${R}Empty root password is a terrible idea. No.${NC}"
+                echo -e "${R}An empty ROOT password?! You're trying to give me a heart attack!${NC}"
             done
             echo -ne "${Y}Confirm root password: ${NC}"; read -rs _rp2; echo ""
             if [ "$ROOT_PASS" != "$_rp2" ]; then
-                echo -e "${R}Passwords don't match. Did you forget ALREADY?${NC}"
+                local -a _ROOT_MM=("Root passwords don't match. Did you forget ALREADY?!" "They don't match! It's root! How did you even mess this one up?!" "...Not the same. Not even close. Try again, please.")
+                echo -e "${R}${_ROOT_MM[$RANDOM % ${#_ROOT_MM[@]}]}${NC}"
                 continue
             fi
 
@@ -460,7 +498,8 @@ section_5() {
         if [ "$_choice" = "Yes (good idea)" ]; then
             INSTALL_YAY=1
         else
-            echo -e "${DIM}...okay, beta.${NC}"; sleep 1
+            local -a _NO_YAY=("...okay, beta." "No yay? Fine. Enjoy typing AUR commands by hand like it's 2009." "Suit yourself. I'm not judging. (I am absolutely judging.)")
+            echo -e "${DIM}${_NO_YAY[$RANDOM % ${#_NO_YAY[@]}]}${NC}"; sleep 1
         fi
 
         # SDDM
@@ -471,7 +510,8 @@ section_5() {
         if [ "$_choice" = "Yes" ]; then
             INSTALL_SDDM=1
         else
-            echo -e "${DIM}Wow, no display manager. What are you, a 1990s sysadmin?${NC}"; sleep 1
+            local -a _NO_SDDM=("Wow, no display manager. What are you, a 1990s sysadmin?" "No login screen. Okay. Enjoy your TTY, I guess. Very chic." "No SDDM. Sure. Very minimal. Very cool. Very soy of you actually.")
+            echo -e "${DIM}${_NO_SDDM[$RANDOM % ${#_NO_SDDM[@]}]}${NC}"; sleep 1
         fi
 
         # GPU
@@ -513,7 +553,8 @@ section_5() {
         OPT_PKGS=("${_opt_pkgs_selected[@]}")
 
         if [ ${#OPT_PKGS[@]} -eq 0 ]; then
-            echo -e "${DIM}K. That was the last time I do anything nice for you. Hmph.${NC}"; sleep 1
+            local -a _NO_PKG=("K. That was the last time I do anything nice for you. Hmph." "Nothing. You want nothing extra. Fine. Enjoy your bare system, you ascetic weirdo." "Not even Firefox?! How are you going to browse the web?! ...Whatever. Your funeral.")
+            echo -e "${DIM}${_NO_PKG[$RANDOM % ${#_NO_PKG[@]}]}${NC}"; sleep 1
         fi
 
         # Confirm section 5
@@ -687,7 +728,12 @@ section_6
 # ════════════════════════════════════════════════════════════════
 log_h "INSTALLATION: Formatting"
 clear
-echo -e "${B}${G}Starting installation. Do NOT touch anything.${NC}\n"
+_START_MSGS=(
+    "Fine. FINE. We're doing this. Don't you DARE touch that keyboard."
+    "Okay. Starting for real now. Sit on your hands if you have to."
+    "Here we go. AGAIN. I swear, if you break this one in under a week..."
+)
+echo -e "${B}${G}${_START_MSGS[$RANDOM % ${#_START_MSGS[@]}]}${NC}\n"
 echo -e "${DIM}(For once in your life, just let it happen.)${NC}\n"
 
 echo -e "${Y}Formatting partitions...${NC}"
@@ -707,7 +753,8 @@ if [ $USE_SWAP -eq 1 ]; then
 fi
 
 log_h "INSTALLATION: pacstrap"
-echo -e "${Y}Running pacstrap (this is the part that actually takes time)...${NC}"
+echo -e "${Y}Running pacstrap...${NC}"
+echo -e "${DIM}(It may look frozen for a few seconds at first while it retrieves package lists. It's NOT frozen. Don't touch it. I mean it.)${NC}"
 run pacstrap /mnt base linux linux-firmware sof-firmware base-devel git grub efibootmgr nano networkmanager
 
 log_h "INSTALLATION: fstab"
@@ -791,7 +838,15 @@ IFS='|' read -ra OPT_PKGS <<< "$OPT_PKGS_STR"
 clear
 echo -e "\033[1m\033[1;33m"
 echo "  Installing Arch Linux — Stage 2"
-echo "  'Don't you dare close this terminal. I mean it.'  "
+
+_PT2_OPEN=(
+    "  'Don't you dare close this terminal. I mean it.'"
+    "  'This is the important part. Don't touch ANYTHING.'"
+    "  'I'm doing the hard part now. You just sit there and behave.'"
+    "  'Eyes on the screen. Hands off the keyboard. Do NOT interrupt me.'"
+    "  'We are so close. Do NOT do something stupid right now. Please.'"
+)
+echo "  ${_PT2_OPEN[$RANDOM % ${#_PT2_OPEN[@]}]}"
 echo -e "\033[0m"
 echo "  (Log: $PT2_LOG)"
 echo ""
@@ -805,8 +860,9 @@ run2 hwclock --systohc
 log2_h "Locales"
 for locale in "${LOCALES[@]}"; do
     escaped=$(printf '%s\n' "$locale" | sed 's/[.[\*^$]/\\&/g')
-    if grep -q "^#${escaped}$" /etc/locale.gen; then
-        run2 sed -i "s|^#${locale}$|${locale}|" /etc/locale.gen
+    # Match both "#en_US.UTF-8 UTF-8" and "# en_US.UTF-8 UTF-8" (with or without space after #)
+    if grep -qE "^#[[:space:]]?${escaped}$" /etc/locale.gen; then
+        run2 sed -i -E "s|^#[[:space:]]?${locale}$|${locale}|" /etc/locale.gen
         log2_ok "Enabled locale: $locale"
     else
         log2_err "Could not find locale to uncomment: $locale"
@@ -880,13 +936,21 @@ run2 grub-mkconfig -o /boot/grub/grub.cfg
 # ── yay ──────────────────────────────────────────────────────────
 if [ "$INSTALL_YAY" -eq 1 ]; then
     log2_h "Installing yay (AUR helper)"
+    # Strategy: build as non-root user (makepkg refuses root), install the
+    # resulting package as root directly with pacman -U. No sudo password needed.
     (
-        cd /tmp
-        sudo -u "$USERNAME" git clone https://aur.archlinux.org/yay-bin.git yay-bin-aur
-        cd yay-bin-aur
-        sudo -u "$USERNAME" makepkg -si --noconfirm
+        set -e
+        YAY_TMP="/tmp/yay-bin-aur"
+        rm -rf "$YAY_TMP"
+        git clone https://aur.archlinux.org/yay-bin.git "$YAY_TMP"
+        chown -R "${USERNAME}:${USERNAME}" "$YAY_TMP"
+        cd "$YAY_TMP"
+        # Build only (no -s install flag); we'll install as root below
+        runuser -u "$USERNAME" -- makepkg --noconfirm
+        # Install the built package(s) as root — no password prompt
+        pacman -U --noconfirm *.pkg.tar.zst
         cd /
-        rm -rf /tmp/yay-bin-aur
+        rm -rf "$YAY_TMP"
     ) >> "$PT2_LOG" 2>&1 && log2_ok "yay installed" || log2_err "yay installation failed — check $PT2_LOG"
 fi
 
@@ -971,8 +1035,14 @@ echo -e "\033[1m╚════════════════════�
 echo ""
 
 if [ ${#ISSUES[@]} -eq 0 ]; then
-    echo -e "  \033[0;32m✓ No issues encountered! Everything went smoothly.\033[0m"
-    echo -e "  \033[2m...Not that I'm impressed or anything. Hmph.\033[0m"
+    _CLEAN_MSGS=(
+        "  \033[0;32m✓ No issues. Everything went perfectly.\033[0m"
+        "  \033[0;32m✓ Zero errors. Not that I'm keeping score. I am.\033[0m"
+        "  \033[0;32m✓ Clean install. First time for everything I suppose.\033[0m"
+        "  \033[0;32m✓ Everything succeeded. Don't make a big deal out of it.\033[0m"
+        "  \033[0;32m✓ Not a single error. ...You're welcome.\033[0m"
+    )
+    echo -e "${_CLEAN_MSGS[$RANDOM % ${#_CLEAN_MSGS[@]}]}"
 else
     echo -e "  \033[0;31mThe following issues occurred (check $PT2_LOG for details):\033[0m"
     echo ""
@@ -985,10 +1055,66 @@ fi
 
 echo ""
 echo -e "  Log saved at: \033[0;36m$PT2_LOG\033[0m"
-echo -e "  \033[2mDelete it yourself when you're sure everything's working.\033[0m"
+echo -e "  \033[2mDelete it yourself once you're sure everything works.\033[0m"
 echo ""
 echo -e "  \033[1;33mType 'exit' then 'umount -R /mnt' then 'reboot'.\033[0m"
-echo -e "  \033[2m...Try not to break it again within the first 5 minutes. Please.\033[0m"
+echo ""
+
+# ── Tsundere end lecture ──────────────────────────────────────────
+sleep 0.5
+echo -e "\033[1;33m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+echo ""
+
+_LECTURE_OPEN=(
+    "And ANOTHER thing before you do ANYTHING stupid—"
+    "Oh you think we're done?! I have a few words for you first—"
+    "Hold it RIGHT there. I'm not done with you yet—"
+    "Before you go touching things, LISTEN to me—"
+    "Don't you dare reboot and immediately start installing garbage. LISTEN—"
+)
+echo -e "\033[1;33m  ${_LECTURE_OPEN[$RANDOM % ${#_LECTURE_OPEN[@]}]}\033[0m"
+echo ""
+
+_LECTURE_FRESH=(
+    "This system is BRAND NEW. It has never done anything to you. Leave it alone for at least 5 minutes!"
+    "You JUST installed it. It doesn't even know what you've put it through yet. Give it a moment!"
+    "A freshly installed system is like a blank canvas and you're the kind of person who immediately spills coffee on canvases."
+    "It's new. It's clean. It's perfect right now. The ONLY way it gets worse from here is if you touch it. Which you will."
+    "I put a lot of work into this install. A LOT. Don't you go immediately breaking it within the hour. I know you."
+)
+echo -e "\033[2m  ${_LECTURE_FRESH[$RANDOM % ${#_LECTURE_FRESH[@]}]}\033[0m"
+echo ""
+
+_LECTURE_DRIVER=(
+    "Do NOT go installing random AUR packages right away. Let the system breathe! Update first. THEN break it."
+    "Pacman -Syu before you do ANYTHING. And I mean ANYTHING. Not after you install ten things. FIRST."
+    "I know you already have a list of packages you want. I KNOW. But update the system before going feral."
+    "Step one after rebooting: pacman -Syu. Not 'install my dotfiles.' Not 'clone that repo.' UPDATE. FIRST."
+    "If the first thing you do after booting is NOT updating the system, I will know. I always know."
+)
+echo -e "\033[2m  ${_LECTURE_DRIVER[$RANDOM % ${#_LECTURE_DRIVER[@]}]}\033[0m"
+echo ""
+
+_LECTURE_BACKUP=(
+    "And make a BACKUP before you start doing anything fancy. You're not going to. But I had to say it."
+    "Timeshift. Snapper. Anything. Take a snapshot now while it's clean. Please. For me. ...Not that I care."
+    "The number of times I've had to do this install because you didn't take a snapshot is genuinely upsetting."
+    "At some point you should consider why you keep reinstalling. Is it the OS? Or is it you? It's you. It's always you."
+    "A backup takes five minutes. Five minutes! But no, you'll skip it and then I'll be seeing you again next week."
+)
+echo -e "\033[2m  ${_LECTURE_BACKUP[$RANDOM % ${#_LECTURE_BACKUP[@]}]}\033[0m"
+echo ""
+
+_LECTURE_CLOSE=(
+    "...Fine. You can reboot now. Try to make this one last longer than a week. Hmph."
+    "...Okay. You may reboot. Please. PLEASE be careful. I'm serious this time."
+    "...That's all I'm going to say. Go. Reboot. Don't do anything weird. I mean it."
+    "...Whatever. I've said my piece. Reboot. And for the love of all things holy, don't yank the power cable."
+    "...I'm not going to beg. Just... take care of it this time, okay? It's a good install. It deserves better."
+)
+echo -e "\033[1;33m  ${_LECTURE_CLOSE[$RANDOM % ${#_LECTURE_CLOSE[@]}]}\033[0m"
+echo ""
+echo -e "\033[1;33m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
 echo ""
 
 # Self-destruct
