@@ -8,7 +8,7 @@ flash() {
 
 flash "INSTALLING PACMAN PACKAGES"
 
-sudo pacman -Sy --needed --noconfirm python chromium cloudflared code dolphin efibootmgr firefox git hyprland hyprlauncher kitty ntfs-3g os-prober polkit-kde-agent unrar unzip uvicorn waybar zip ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols dunst git base-devel
+sudo pacman -Sy --needed --noconfirm python chromium cloudflared code dolphin efibootmgr firefox git hyprland hyprlauncher kitty ntfs-3g os-prober polkit-kde-agent unrar unzip uvicorn waybar zip ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols dunst git base-devel less
 
 flash "INSTALLING YAY (AUR HELPER)"
 
