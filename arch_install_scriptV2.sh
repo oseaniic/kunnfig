@@ -480,41 +480,94 @@ section_4() {
 }
 
 # ════════════════════════════════════════════════════════════════
-#  SECTION 5 — QoL Options & Extra Packages
+#  SECTION 5 — Desktop Environment
 # ════════════════════════════════════════════════════════════════
 section_5() {
-    log_h "SECTION 5: QoL & Extras"
-    local _choice _confirm
+    log_h "SECTION 5: Desktop Environment"
+    local _confirm _de_raw
+
+    while true; do
+        clear
+        echo -e "${B}════ Section 5: Desktop Environment ════${NC}\n"
+        echo -e "${DIM}Pick a desktop environment, or skip and configure it yourself later."
+        echo -e "Hyprland is a tiling Wayland compositor with config included."
+        echo -e "KDE is... also a thing that exists. Apparently.${NC}\n"
+
+        echo -e "${Y}Desktop environment:${NC}"
+        v_menu _de_raw 0 \
+            "skip  (bare system, you figure it out)" \
+            "hyprland  (tiling WM, sane config included)" \
+            "kde  (not implemented yet — same as skip)"
+
+        DE_TYPE=$(echo "$_de_raw" | awk '{print $1}')
+
+        if [ "$DE_TYPE" = "kde" ]; then
+            echo -e "${DIM}...KDE. Sure. I'll add support for it one day. For now it's treated as skip.${NC}"
+            sleep 1.5
+            DE_TYPE="skip"
+        fi
+
+        clear
+        echo -e "${B}════ Section 5 Summary ════${NC}"
+        echo -e "  Desktop env : ${C}$DE_TYPE${NC}"
+        if [ "$DE_TYPE" = "hyprland" ]; then
+            echo -e "${DIM}  → yay will be installed automatically (required for Hyprland AUR packages)${NC}"
+            echo -e "${DIM}  → SDDM will be installed automatically${NC}"
+            echo -e "${DIM}  → Full package set installed (Firefox, Kitty, fonts, etc.)${NC}"
+            echo -e "${DIM}  → Kitty sane defaults will be applied${NC}"
+        fi
+        echo ""
+        echo -e "${Y}Does this look right?${NC}"
+        h_menu _confirm 0 "Yes, continue" "Redo this section"
+        [ "$_confirm" = "Yes, continue" ] && break
+        log "User redoing section 5"
+    done
+    log "Section 5 complete — de_type=$DE_TYPE"
+}
+
+# ════════════════════════════════════════════════════════════════
+#  SECTION 6 — QoL Options & Extra Packages
+# ════════════════════════════════════════════════════════════════
+section_6() {
+    log_h "SECTION 6: QoL & Extras"
+    local _choice _confirm _kitty_yn
     local -a _opt_pkgs_selected
 
     while true; do
         clear
-        echo -e "${B}════ Section 5: Quality of Life Options ════${NC}\n"
+        echo -e "${B}════ Section 6: Quality of Life Options ════${NC}\n"
 
-        # yay
-        echo -e "${Y}Install ${B}yay${NC}${Y} (AUR helper)?${NC}"
-        h_menu _choice 0 "Yes (good idea)" "No (beta)"
-        INSTALL_YAY=0
-        if [ "$_choice" = "Yes (good idea)" ]; then
+        if [ "$DE_TYPE" = "hyprland" ]; then
+            echo -e "${DIM}  Hyprland mode: yay and SDDM are required and will be installed automatically."
+            echo -e "  Package selection is also skipped — everything gets installed.${NC}\n"
             INSTALL_YAY=1
-        else
-            local -a _NO_YAY=("...okay, beta." "No yay? Fine. Enjoy typing AUR commands by hand like it's 2009." "Suit yourself. I'm not judging. (I am absolutely judging.)")
-            echo -e "${DIM}${_NO_YAY[$RANDOM % ${#_NO_YAY[@]}]}${NC}"; sleep 1
-        fi
-
-        # SDDM
-        echo ""
-        echo -e "${Y}Install & enable ${B}SDDM${NC}${Y} (display manager / login screen)?${NC}"
-        h_menu _choice 0 "Yes" "No (soy)"
-        INSTALL_SDDM=0
-        if [ "$_choice" = "Yes" ]; then
             INSTALL_SDDM=1
         else
-            local -a _NO_SDDM=("Wow, no display manager. What are you, a 1990s sysadmin?" "No login screen. Okay. Enjoy your TTY, I guess. Very chic." "No SDDM. Sure. Very minimal. Very cool. Very soy of you actually.")
-            echo -e "${DIM}${_NO_SDDM[$RANDOM % ${#_NO_SDDM[@]}]}${NC}"; sleep 1
+            # yay
+            echo -e "${Y}Install ${B}yay${NC}${Y} (AUR helper)?${NC}"
+            h_menu _choice 0 "Yes (good idea)" "No (beta)"
+            INSTALL_YAY=0
+            if [ "$_choice" = "Yes (good idea)" ]; then
+                INSTALL_YAY=1
+            else
+                local -a _NO_YAY=("...okay, beta." "No yay? Fine. Enjoy typing AUR commands by hand like it's 2009." "Suit yourself. I'm not judging. (I am absolutely judging.)")
+                echo -e "${DIM}${_NO_YAY[$RANDOM % ${#_NO_YAY[@]}]}${NC}"; sleep 1
+            fi
+
+            # SDDM
+            echo ""
+            echo -e "${Y}Install & enable ${B}SDDM${NC}${Y} (display manager / login screen)?${NC}"
+            h_menu _choice 0 "Yes" "No (soy)"
+            INSTALL_SDDM=0
+            if [ "$_choice" = "Yes" ]; then
+                INSTALL_SDDM=1
+            else
+                local -a _NO_SDDM=("Wow, no display manager. What are you, a 1990s sysadmin?" "No login screen. Okay. Enjoy your TTY, I guess. Very chic." "No SDDM. Sure. Very minimal. Very soy of you actually.")
+                echo -e "${DIM}${_NO_SDDM[$RANDOM % ${#_NO_SDDM[@]}]}${NC}"; sleep 1
+            fi
         fi
 
-        # GPU
+        # GPU — always shown
         echo ""
         echo -e "${Y}What GPU do you have?  ${DIM}(RTX/GTX/AMD drivers are WIP, will be skipped if selected)${NC}"
         v_menu GPU_TYPE 4 \
@@ -523,60 +576,89 @@ section_5() {
             "GTX boi    (not implemented yet, skipped)" \
             "Athlon boi (not implemented yet, skipped)" \
             "broke boi  (no GPU drivers)"
-        GPU_TYPE=$(echo "$GPU_TYPE" | awk '{print $1}')  # just "intel", "RTX", "GTX", "Athlon", "broke"
+        GPU_TYPE=$(echo "$GPU_TYPE" | awk '{print $1}')
 
-        # OS prober
+        # OS prober — always shown
         echo ""
         echo -e "${Y}Detect other operating systems via GRUB?  ${DIM}(e.g. Windows dual-boot)${NC}"
         h_menu _choice 0 "Yes" "No"
         DETECT_OS=0
         [ "$_choice" = "Yes" ] && DETECT_OS=1
 
-        # Autologin
+        # Autologin — always shown
         echo ""
         echo -e "${Y}Set up ${B}autologin${NC}${Y} on TTY1?${NC}"
         h_menu _choice 1 "Yes" "No"
         AUTOLOGIN=0
         [ "$_choice" = "Yes" ] && AUTOLOGIN=1
 
-        # Optional packages
-        echo ""
-        echo -e "${Y}Any extra packages?  ${DIM}(Space or Enter toggles, Enter on Continue confirms)${NC}"
-        cb_menu _opt_pkgs_selected "" \
-            "Firefox" \
-            "Code (VS Code)" \
-            "Dolphin (file manager)" \
-            "Kitty (terminal)" \
-            "Basic Fonts  (ttf-hack, ttf-dejavu, ttf-jetbrains-mono, nerd-fonts-symbols)" \
-            "Continue"
+        # Packages + kitty config — hidden in hyprland mode
+        KITTY_DEFAULTS=0
+        if [ "$DE_TYPE" = "hyprland" ]; then
+            OPT_PKGS=()
+            KITTY_DEFAULTS=1  # kitty always included with hyprland
+        else
+            echo ""
+            echo -e "${Y}Any extra packages?  ${DIM}(Space or Enter toggles, Enter on Continue confirms)${NC}"
+            cb_menu _opt_pkgs_selected "" \
+                "Firefox" \
+                "Code (VS Code)" \
+                "Dolphin (file manager)" \
+                "Kitty (terminal)" \
+                "Basic Fonts  (ttf-hack, ttf-dejavu, ttf-jetbrains-mono, nerd-fonts-symbols)" \
+                "Continue"
 
-        OPT_PKGS=("${_opt_pkgs_selected[@]}")
+            OPT_PKGS=("${_opt_pkgs_selected[@]}")
 
-        if [ ${#OPT_PKGS[@]} -eq 0 ]; then
-            local -a _NO_PKG=("K. That was the last time I do anything nice for you. Hmph." "Nothing. You want nothing extra. Fine. Enjoy your bare system, you ascetic weirdo." "Not even Firefox?! How are you going to browse the web?! ...Whatever. Your funeral.")
-            echo -e "${DIM}${_NO_PKG[$RANDOM % ${#_NO_PKG[@]}]}${NC}"; sleep 1
+            if [ ${#OPT_PKGS[@]} -eq 0 ]; then
+                local -a _NO_PKG=("K. That was the last time I do anything nice for you. Hmph." "Nothing extra. Fine. Enjoy your bare system, you ascetic weirdo." "Not even Firefox?! How will you browse the web?! ...Whatever. Your funeral.")
+                echo -e "${DIM}${_NO_PKG[$RANDOM % ${#_NO_PKG[@]}]}${NC}"; sleep 1
+            fi
+
+            # Kitty sane defaults — only if Kitty was selected
+            for _p in "${OPT_PKGS[@]}"; do
+                if [ "$_p" = "Kitty (terminal)" ]; then
+                    clear
+                    echo -e "${B}════ Kitty Terminal Config ════${NC}\n"
+                    echo -e "${Y}Apply sane Kitty keybind defaults?${NC}"
+                    echo -e "${DIM}You know... unlike whatever virgin Linux devs thought Ctrl+Shift+V"
+                    echo -e "was an acceptable paste shortcut. It isn't. It has never been. This fixes that.${NC}\n"
+                    echo -e "${DIM}  ctrl+c  → copy if selected, otherwise send interrupt (like a normal terminal)"
+                    echo -e "  ctrl+v  → paste from clipboard, with your actual human hands"
+                    echo -e "  ctrl+shift+c → raw interrupt escape hatch, for when you need it"
+                    echo -e "  bracketed paste → enabled (stops scripts from eating your pastes)${NC}\n"
+                    h_menu _kitty_yn 0 "Yes, fix it" "No, I enjoy suffering"
+                    [ "$_kitty_yn" = "Yes, fix it" ] && KITTY_DEFAULTS=1
+                    break
+                fi
+            done
         fi
 
-        # Confirm section 5
+        # Confirm section 6
         clear
-        echo -e "${B}════ Section 5 Summary ════${NC}"
-        echo -e "  Install yay     : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)${NC}"
-        echo -e "  Install SDDM    : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)${NC}"
+        echo -e "${B}════ Section 6 Summary ════${NC}"
+        echo -e "  Install yay     : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto — Hyprland)" || echo "")${NC}"
+        echo -e "  Install SDDM    : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto — Hyprland)" || echo "")${NC}"
         echo -e "  GPU Type        : ${C}$GPU_TYPE${NC}"
         echo -e "  Detect other OS : ${C}$([ $DETECT_OS -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  Autologin       : ${C}$([ $AUTOLOGIN -eq 1 ] && echo yes || echo no)${NC}"
-        echo -e "  Extra packages  : ${C}$([ ${#OPT_PKGS[@]} -gt 0 ] && echo "${OPT_PKGS[*]}" || echo "none")${NC}"
+        if [ "$DE_TYPE" = "hyprland" ]; then
+            echo -e "  Extra packages  : ${C}all (Hyprland mode)${NC}"
+        else
+            echo -e "  Extra packages  : ${C}$([ ${#OPT_PKGS[@]} -gt 0 ] && echo "${OPT_PKGS[*]}" || echo "none")${NC}"
+        fi
+        echo -e "  Kitty defaults  : ${C}$([ $KITTY_DEFAULTS -eq 1 ] && echo yes || echo no)${NC}"
         echo ""
         echo -e "${Y}Does this look right?${NC}"
         h_menu _confirm 0 "Yes, continue" "Redo this section"
         [ "$_confirm" = "Yes, continue" ] && break
-        log "User redoing section 5"
+        log "User redoing section 6"
     done
-    log "Section 5 complete — yay=$INSTALL_YAY sddm=$INSTALL_SDDM gpu=$GPU_TYPE os_detect=$DETECT_OS autologin=$AUTOLOGIN pkgs=${OPT_PKGS[*]}"
+    log "Section 6 complete — yay=$INSTALL_YAY sddm=$INSTALL_SDDM gpu=$GPU_TYPE os_detect=$DETECT_OS autologin=$AUTOLOGIN pkgs=${OPT_PKGS[*]} kitty=$KITTY_DEFAULTS"
 }
 
 # ════════════════════════════════════════════════════════════════
-#  SECTION 6 — Final Rundown & Confirmation
+#  SECTION 7 — Final Rundown & Confirmation
 # ════════════════════════════════════════════════════════════════
 PUNISHMENT_STRINGS=(
     "I'm sorry boss, please allow me to retry."
@@ -591,8 +673,8 @@ PUNISHMENT_STRINGS=(
     "Forgive me, for I have sinned against the filesystem."
 )
 
-section_6() {
-    log_h "SECTION 6: Final Confirmation"
+section_7() {
+    log_h "SECTION 7: Final Confirmation"
     local _choice _section _pstr _typed _punish_result
 
     while true; do
@@ -619,13 +701,19 @@ section_6() {
         echo -e "  Multilib    : ${C}enabled${NC}"
         echo -e "  Timezone    : ${C}America/Lima (hardcoded)${NC}"
         echo ""
-        echo -e "${B}── Extras ───────────────────────────────────────────${NC}"
-        echo -e "  Install yay : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)${NC}"
-        echo -e "  SDDM        : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)${NC}"
+        echo -e "${B}── Desktop & Extras ─────────────────────────────────${NC}"
+        echo -e "  Desktop env : ${C}$DE_TYPE${NC}"
+        echo -e "  Install yay : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto)" || echo "")${NC}"
+        echo -e "  SDDM        : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto)" || echo "")${NC}"
         echo -e "  GPU type    : ${C}$GPU_TYPE${NC}"
         echo -e "  Detect OS   : ${C}$([ $DETECT_OS -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  Autologin   : ${C}$([ $AUTOLOGIN -eq 1 ] && echo yes || echo no)${NC}"
-        echo -e "  Extra pkgs  : ${C}$([ ${#OPT_PKGS[@]} -gt 0 ] && echo "${OPT_PKGS[*]}" || echo "none")${NC}"
+        if [ "$DE_TYPE" = "hyprland" ]; then
+            echo -e "  Extra pkgs  : ${C}all (Hyprland mode)${NC}"
+        else
+            echo -e "  Extra pkgs  : ${C}$([ ${#OPT_PKGS[@]} -gt 0 ] && echo "${OPT_PKGS[*]}" || echo "none")${NC}"
+        fi
+        echo -e "  Kitty cfg   : ${C}$([ $KITTY_DEFAULTS -eq 1 ] && echo "sane defaults" || echo "untouched")${NC}"
         echo ""
         echo -e "${B}${R}ALL DATA on /dev/$SEL_FS, /dev/$SEL_EFI $([ $USE_SWAP -eq 1 ] && echo "and /dev/$SEL_SWAP") WILL BE DESTROYED.${NC}"
         echo ""
@@ -636,12 +724,12 @@ section_6() {
             "Redo: Account setup (Section 2)" \
             "Redo: Root account (Section 3)" \
             "Redo: Locale & keyboard (Section 4)" \
-            "Redo: QoL & packages (Section 5)"
+            "Redo: Desktop environment (Section 5)" \
+            "Redo: QoL & packages (Section 6)"
 
         case "$_choice" in
             "Let's go!"*) break ;;
             *)
-                # Punishment gate
                 _pstr="${PUNISHMENT_STRINGS[$RANDOM % ${#PUNISHMENT_STRINGS[@]}]}"
                 _section=$(echo "$_choice" | grep -oP 'Section \d+')
                 clear
@@ -661,6 +749,7 @@ section_6() {
                         "Section 3") section_3 ;;
                         "Section 4") section_4 ;;
                         "Section 5") section_5 ;;
+                        "Section 6") section_6 ;;
                     esac
                 else
                     echo -e "${R}WRONG! That's not what I said, you deaf potato!${NC}"
@@ -676,6 +765,7 @@ section_6() {
                                 "Section 3") section_3 ;;
                                 "Section 4") section_4 ;;
                                 "Section 5") section_5 ;;
+                                "Section 6") section_6 ;;
                             esac
                         else
                             echo -e "${R}Unbelievable. Back to the summary with you.${NC}"; sleep 2
@@ -685,7 +775,7 @@ section_6() {
                 ;;
         esac
     done
-    log "Section 6 confirmed — proceeding with install"
+    log "Section 7 confirmed — proceeding with install"
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -859,10 +949,12 @@ run2 hwclock --systohc
 # ── Locales ──────────────────────────────────────────────────────
 log2_h "Locales"
 for locale in "${LOCALES[@]}"; do
-    escaped=$(printf '%s\n' "$locale" | sed 's/[.[\*^$]/\\&/g')
-    # Match both "#en_US.UTF-8 UTF-8" and "# en_US.UTF-8 UTF-8" (with or without space after #)
-    if grep -qE "^#[[:space:]]?${escaped}$" /etc/locale.gen; then
-        run2 sed -i -E "s|^#[[:space:]]?${locale}$|${locale}|" /etc/locale.gen
+    # Escape ERE special chars so dots/etc in locale names don't wildcard-match
+    esc=$(printf '%s' "$locale" | sed 's/[.+*[\^${}|()]/\\&/g')
+    # locale.gen entries often have trailing spaces AND may or may not have a space after #
+    # grep AND sed both need [[:space:]]* before end-anchor, or they won't match/replace
+    if grep -qE "^#[[:space:]]?${esc}[[:space:]]*$" /etc/locale.gen; then
+        sed -i -E "s|^#[[:space:]]?${esc}[[:space:]]*$|${locale}|" /etc/locale.gen
         log2_ok "Enabled locale: $locale"
     else
         log2_err "Could not find locale to uncomment: $locale"

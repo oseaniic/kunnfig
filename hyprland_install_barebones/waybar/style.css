@@ -1,0 +1,37 @@
+* {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 12px;
+}
+
+window#waybar {
+  background: #111;
+  color: #eee;
+}
+
+/* Workspaces */
+#workspaces button {
+  padding: 0 5px;
+}
+
+/* Right-side spacing */
+#network,
+#pulseaudio,
+#clock,
+#custom-reboot,
+#custom-power {
+  padding: 0 8px;
+}
+
+/* Clock spacing */
+#clock {
+  padding: 0 10px;
+}
+
+/* Power buttons styling */
+#custom-power {
+  color: #ff5f5f;
+}
+
+#custom-reboot {
+  color: #f5a97f;
+}
