@@ -1374,13 +1374,13 @@ if [ "$KITTY_DEFAULTS" -eq 1 ]; then
         cat > "$KITTY_CONF" << 'KITTY_EOF'
 # Kitty config — sane keybinds by Osean's installer
 # ctrl+c: copy if text selected, otherwise send interrupt (SIGINT)
-map ctrl+c copy_or_send_interrupt
+map ctrl+c copy_or_interrupt
 # ctrl+v: paste from clipboard like a normal human being
 map ctrl+v paste_from_clipboard
 # ctrl+shift+c: raw SIGINT escape hatch when you need it
-map ctrl+shift+c send_text normal \x03
+map ctrl+shift+c send_text all \x03
 # Bracketed paste: prevents scripts from consuming pasted text
-enable_audio_bell no
+enable_bracketed_paste yes
 KITTY_EOF
         chown -R "${USERNAME}:${USERNAME}" "$KITTY_CONF_DIR"
         log2_ok "Kitty sane defaults written to $KITTY_CONF"
