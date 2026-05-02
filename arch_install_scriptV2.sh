@@ -41,6 +41,29 @@ printf '╚═══════════════════════
 log "Script: $SCRIPT_DIR"
 log "Log   : $LOG_FILE"
 
+# ── read_secret: masked password input (shows asterisks) ────────
+read_secret() {
+    local _rs_var=$1
+    local _rs_char _rs_str=""
+    tput civis
+    while IFS= read -rsn1 _rs_char; do
+        if [[ $_rs_char == $'\x7f' || $_rs_char == $'\b' ]]; then
+            if [ ${#_rs_str} -gt 0 ]; then
+                _rs_str="${_rs_str%?}"
+                echo -ne "\b \b"
+            fi
+        elif [[ $_rs_char == '' ]]; then
+            break
+        else
+            _rs_str+="$_rs_char"
+            echo -n "*"
+        fi
+    done
+    tput cnorm
+    echo ""
+    printf -v "$_rs_var" '%s' "$_rs_str"
+}
+
 # ── h_menu: horizontal arrow-key menu ───────────────────────────
 # h_menu RESULT_VAR DEFAULT_IDX "opt1" "opt2" ...
 h_menu() {
@@ -113,11 +136,13 @@ v_menu() {
 }
 
 # ── cb_menu: checkbox menu ───────────────────────────────────────
-# cb_menu RESULT_ARR "0,1,..." "opt1" ... "Continue"
+# cb_menu RESULT_ARR CHECKED_DEFAULTS CURSOR_START "opt1" ... "Continue"
+# CHECKED_DEFAULTS: comma-separated indices to pre-check (e.g. "0,1")
+# CURSOR_START: index to place cursor on initially
 # Space or Enter toggles item; Enter on "Continue" confirms.
 cb_menu() {
-    local -n _cr=$1; local _cd=$2; shift 2
-    local -a _co=("$@"); local _cs=0; local _ct=${#_co[@]}
+    local -n _cr=$1; local _cd=$2; local _cstart=$3; shift 3
+    local -a _co=("$@"); local _cs=${_cstart:-0}; local _ct=${#_co[@]}
     local _ck _ck2 _ci _changed _m
     local -a _cc
 
@@ -128,7 +153,6 @@ cb_menu() {
     fi
 
     tput civis
-    # Initial draw
     for _ci in "${!_co[@]}"; do
         if   [ "${_co[$_ci]}" = "Continue" ]; then _m=" ──▶"
         elif [ "${_cc[$_ci]}" -eq 1 ];         then _m=" [x]"
@@ -199,12 +223,12 @@ section_1() {
                 lsblk "/dev/$SEL_DRIVE"
                 echo ""
                 echo -e "${Y}What would you like to do?${NC}"
-                h_menu _action 0 "Continue" "Manage Partitions" "Different Drive"
+                h_menu _action 0 "Continue" "Modify Partitions" "Pick Another Drive"
 
-                if   [ "$_action" = "Continue" ];           then break 2
-                elif [ "$_action" = "Manage Partitions" ];  then
+                if   [ "$_action" = "Continue" ];            then break 2
+                elif [ "$_action" = "Modify Partitions" ];   then
                     cfdisk "/dev/$SEL_DRIVE"; clear
-                elif [ "$_action" = "Different Drive" ];     then break  # re-pick drive
+                elif [ "$_action" = "Pick Another Drive" ];  then break  # re-pick drive
                 fi
             done
         done
@@ -231,7 +255,8 @@ section_1() {
         # ── SWAP ──────────────────────────────────────────────────
         clear
         echo -e "${Y}Do you want a SWAP partition?  ${DIM}(optional on modern systems with plenty of RAM)${NC}"
-        h_menu _swap_yn 0 "Yes" "No"
+        # Default = No (idx 1)
+        h_menu _swap_yn 1 "Yes" "No"
         if [ "$_swap_yn" = "Yes" ]; then
             USE_SWAP=1
             local -a _noEFI=()
@@ -287,7 +312,7 @@ section_1() {
 # ════════════════════════════════════════════════════════════════
 section_2() {
     log_h "SECTION 2: User Details"
-    local _confirm _test_pw _typed
+    local _confirm _typed_user _typed_pw
 
     # Random yell pools
     local -a _HOST_YELLS=(
@@ -326,7 +351,7 @@ section_2() {
             echo ""
         done
 
-        # Password
+        # Password (with asterisks)
         local -a _PW_EMPTY_YELLS=(
             "An EMPTY password?! What is WRONG with you?! Type something, ANYTHING!"
             "...Did you just submit nothing? As a password?! Are you actually serious right now?!"
@@ -339,11 +364,12 @@ section_2() {
         )
         while true; do
             while true; do
-                echo -ne "${Y}Password: ${NC}"; read -rs USER_PASS; echo ""
+                echo -ne "${Y}Password: ${NC}"; read_secret USER_PASS
                 [ -n "$USER_PASS" ] && break
                 echo -e "${R}${_PW_EMPTY_YELLS[$RANDOM % ${#_PW_EMPTY_YELLS[@]}]}${NC}"
             done
-            echo -ne "${Y}Confirm password: ${NC}"; read -rs _pw2; echo ""
+            local _pw2=""
+            echo -ne "${Y}Confirm password: ${NC}"; read_secret _pw2
             [ "$USER_PASS" = "$_pw2" ] && break
             echo -e "${R}${_PW_MISMATCH_YELLS[$RANDOM % ${#_PW_MISMATCH_YELLS[@]}]}${NC}"
         done
@@ -363,12 +389,37 @@ section_2() {
             elif [ "$_confirm" = "Retry" ]; then
                 echo -e "${DIM}...Again. Fine. Let's try this AGAIN.${NC}"; sleep 1; break
             elif [ "$_confirm" = "Test my password" ]; then
-                echo -ne "${Y}Type your password to test it: ${NC}"; read -rs _typed; echo ""
-                if [ "$_typed" = "$USER_PASS" ]; then
-                    local -a _PW_OK=("✓ It matches. Good. I'm not impressed, that's the bare minimum." "✓ Correct! See? You CAN do things right when you try. Sometimes." "✓ Yep, that's it. ...Don't look so proud of yourself, it's a password.")
+                echo ""
+                echo -ne "${Y}Type your username to test: ${NC}"; read -r _typed_user
+                echo -ne "${Y}Type your password to test: ${NC}"; read_secret _typed_pw
+                if [ "$_typed_user" = "$USERNAME" ] && [ "$_typed_pw" = "$USER_PASS" ]; then
+                    local -a _PW_OK=(
+                        "✓ Username AND password match. Look at you, getting things right for once. Don't let it go to your head."
+                        "✓ Correct on both counts! See? You CAN do things right when you actually try. Sometimes."
+                        "✓ Both match. I'm shocked. Genuinely. ...Don't look so proud of yourself, it's the bare minimum."
+                        "✓ Perfect. Username checks out, password checks out. Absolutely unremarkable, just like you. Well done."
+                    )
                     echo -e "${G}${_PW_OK[$RANDOM % ${#_PW_OK[@]}]}${NC}"
+                elif [ "$_typed_user" != "$USERNAME" ] && [ "$_typed_pw" != "$USER_PASS" ]; then
+                    local -a _BOTH_BAD=(
+                        "✗ BOTH are wrong. The username AND the password. Did you forget who you even ARE?! BAKAA!"
+                        "✗ Wrong username. Wrong password. Outstanding. I am in awe of your incompetence."
+                        "✗ Nope. Neither one. You quite literally failed to remember your own name. Incredible."
+                    )
+                    echo -e "${R}${_BOTH_BAD[$RANDOM % ${#_BOTH_BAD[@]}]}${NC}"
+                elif [ "$_typed_user" != "$USERNAME" ]; then
+                    local -a _USER_BAD=(
+                        "✗ Password's right but... that username? That's not you. Do you need a moment?"
+                        "✗ Wrong username. The password was fine! But WHO ARE YOU?! Think harder!"
+                        "✗ Username doesn't match. You remembered the password but forgot your own name. Remarkable."
+                    )
+                    echo -e "${R}${_USER_BAD[$RANDOM % ${#_USER_BAD[@]}]}${NC}"
                 else
-                    local -a _PW_BAD=("✗ WRONG! You literally set this two minutes ago! HOW?!" "✗ That's not it. ...Are you okay? Do you need help?" "✗ Nope. Not even close. This is painful to watch.")
+                    local -a _PW_BAD=(
+                        "✗ Username's right but that password? Not even close. You set this FIVE MINUTES AGO. HOW?!"
+                        "✗ Wrong password. The username worked! But the password? Completely wrong. Are you okay?"
+                        "✗ Password doesn't match. Username is fine. You were SO CLOSE. So, so painfully close."
+                    )
                     echo -e "${R}${_PW_BAD[$RANDOM % ${#_PW_BAD[@]}]}${NC}"
                 fi
                 sleep 2
@@ -389,7 +440,13 @@ section_3() {
     echo -e "${B}════ Section 3: Administrator (root) Account ════${NC}\n"
     echo -e "${DIM}The root account is the system administrator. Most modern setups keep it"
     echo -e "locked and use sudo instead. Personally, I've never once needed it enabled."
-    echo -e "Not once. In all the times you've made me do this. ...Just saying.${NC}\n"
+    echo -e "Not once. In all the times you've made me do this."
+    echo ""
+    echo -e "And between you and me? I once enabled it on my own machine because some"
+    echo -e "random forum post said to. Next thing I know, EVERY command in the terminal"
+    echo -e "was begging me for the sudo password — even things that had no business asking."
+    echo -e "I use Arch, by the way. I know what I'm doing. And it STILL ruined my weekend."
+    echo -e "So. Think carefully. ...Hmph.${NC}\n"
     echo -e "${Y}Enable the root account?${NC}"
     h_menu _yn 1 "Yes" "No (recommended)"
 
@@ -399,11 +456,11 @@ section_3() {
         echo -e "${DIM}(Note: the root login username is just 'root'. No customization here.)${NC}\n"
         while true; do
             while true; do
-                echo -ne "${Y}Root password: ${NC}"; read -rs ROOT_PASS; echo ""
+                echo -ne "${Y}Root password: ${NC}"; read_secret ROOT_PASS
                 [ -n "$ROOT_PASS" ] && break
                 echo -e "${R}An empty ROOT password?! You're trying to give me a heart attack!${NC}"
             done
-            echo -ne "${Y}Confirm root password: ${NC}"; read -rs _rp2; echo ""
+            echo -ne "${Y}Confirm root password: ${NC}"; read_secret _rp2
             if [ "$ROOT_PASS" != "$_rp2" ]; then
                 local -a _ROOT_MM=("Root passwords don't match. Did you forget ALREADY?!" "They don't match! It's root! How did you even mess this one up?!" "...Not the same. Not even close. Try again, please.")
                 echo -e "${R}${_ROOT_MM[$RANDOM % ${#_ROOT_MM[@]}]}${NC}"
@@ -445,7 +502,8 @@ section_4() {
         clear
         echo -e "${B}════ Section 4: Locale & Keyboard ════${NC}\n"
         echo -e "${Y}Select your locale(s):  ${DIM}(↑↓ navigate, Space or Enter toggles, Enter on Continue confirms)${NC}"
-        cb_menu _selected_locales "0" \
+        # en_US pre-checked (idx 0), cursor starts at "Continue" (idx 3)
+        cb_menu _selected_locales "0" 3 \
             "en_US.UTF-8 UTF-8" \
             "ja_JP.UTF-8 UTF-8" \
             "es_PE.UTF-8 UTF-8" \
@@ -460,17 +518,34 @@ section_4() {
         echo ""
         echo -e "${Y}Select your keyboard layout:${NC}"
         v_menu KEYMAP 0 "us  (QWERTY US)" "es  (Spanish)" "jp106  (Japanese 106)"
-
-        # Strip to just the key (first word)
         KEYMAP=$(echo "$KEYMAP" | awk '{print $1}')
+
+        # Weeb check — roast if Japanese selected
+        local _is_weeb=0
+        for _loc in "${LOCALES[@]}"; do
+            [[ "$_loc" == ja_JP* ]] && _is_weeb=1 && break
+        done
 
         # Confirm
         clear
         echo -e "${B}════ Locale Summary ════${NC}"
         echo -e "  Locales  : ${C}${LOCALES[*]}${NC}"
         echo -e "  Keymap   : ${C}$KEYMAP${NC}"
+        echo -e "  Timezone : ${C}America/Lima${NC}  ${DIM}(born a Peruvian, always a Peruvian — can't change that, and you can't change your nationality either, dummy~)${NC}"
         echo -e "  Multilib : ${C}enabled (automatic)${NC}"
         echo ""
+
+        if [ $_is_weeb -eq 1 ]; then
+            local -a _WEEB_ROASTS=(
+                "  ${Y}...ja_JP. Really. REALLY. I don't even want to look at you right now. Are you seriously appropriating MY culture for your little anime phase?! You probably can't even order at a restaurant in Japanese. Baka.${NC}"
+                "  ${Y}Oh? Japanese locale? How many episodes deep are you exactly? Go touch grass. Real grass. Not whatever they have in your favorite isekai. Honestly, unbelievable.${NC}"
+                "  ${Y}Let me guess — you watched ONE anime and suddenly you're 日本語 now? My culture is not your personality trait. I can't believe I'm installing this for you. ...Hmph. Baka.${NC}"
+                "  ${Y}Japanese. Sure. And I bet your keyboard is covered in Hatsune Miku stickers. This is humiliating for both of us, just so you know.${NC}"
+            )
+            echo -e "${_WEEB_ROASTS[$RANDOM % ${#_WEEB_ROASTS[@]}]}"
+            echo ""
+        fi
+
         echo -e "${Y}Does this look correct?${NC}"
         h_menu _confirm 0 "Yes, continue" "Redo this section"
         [ "$_confirm" = "Yes, continue" ] && break
@@ -507,14 +582,42 @@ section_5() {
             DE_TYPE="skip"
         fi
 
+        # ── Special "are you sure?" for skip ─────────────────────
+        if [ "$DE_TYPE" = "skip" ]; then
+            clear
+            echo -e "${B}════ Section 5 Summary ════${NC}"
+            echo -e "  Desktop env : ${C}none (bare system)${NC}"
+            echo ""
+            local -a _SKIP_ROASTS=(
+                "  ${DIM}Oh, so you're going commando? No DE? I hope you enjoy staring at a blinking cursor like it's 1983. Very chic. Very unhinged.${NC}"
+                "  ${DIM}No desktop environment. Cool. Very cool. You realize you actually have to SET THINGS UP now, right? By yourself? In the terminal? Like an animal?${NC}"
+                "  ${DIM}Ah yes, the 'I'll rice it myself' crowd. You know statistically speaking people who say that have 3 half-finished configs and a broken .xinitrc. I'm just saying.${NC}"
+                "  ${DIM}Right. No DE. Classic move from someone who spends more time configuring their system than actually using it. Respect. Unfortunate, but respect.${NC}"
+            )
+            echo -e "${_SKIP_ROASTS[$RANDOM % ${#_SKIP_ROASTS[@]}]}"
+            echo ""
+            echo -e "${Y}...You realize that means NO windows, NO taskbar, NOTHING out of the box, right?"
+            echo -e "Are you absolutely SURE you don't want a desktop environment?${NC}"
+            echo -e "${DIM}(u realize u gotta be 350+ lbs AND own at least 3 mechanical keyboards to choose this option, right? Now go back and choose like a normal person please.)${NC}"
+            echo ""
+            # Default = Yes (0), they can always go back
+            h_menu _confirm 0 "Yes, I'm sure (I'm built different)" "No, take me back (smart choice)"
+            if [ "$_confirm" = "No, take me back (smart choice)" ]; then
+                log "User reconsidering no-DE choice"
+                continue
+            fi
+            break
+        fi
+
+        # ── Normal summary for hyprland ───────────────────────────
         clear
         echo -e "${B}════ Section 5 Summary ════${NC}"
         echo -e "  Desktop env : ${C}$DE_TYPE${NC}"
         if [ "$DE_TYPE" = "hyprland" ]; then
             echo -e "${DIM}  → yay will be installed automatically (required for Hyprland AUR packages)${NC}"
-            echo -e "${DIM}  → SDDM will be installed automatically${NC}"
-            echo -e "${DIM}  → Full package set installed (Firefox, Kitty, fonts, etc.)${NC}"
-            echo -e "${DIM}  → Kitty sane defaults will be applied${NC}"
+            echo -e "${DIM}  → Full package set: hyprland, waybar, dunst, polkit-kde-agent, webcord, kitty${NC}"
+            echo -e "${DIM}  → Sane Hyprland config will be copied from hyprland_install_barebones/${NC}"
+            echo -e "${DIM}  → Hyprland will autolaunch from TTY1 via .bash_profile${NC}"
         fi
         echo ""
         echo -e "${Y}Does this look right?${NC}"
@@ -537,13 +640,11 @@ section_6() {
         clear
         echo -e "${B}════ Section 6: Quality of Life Options ════${NC}\n"
 
+        # ── yay ───────────────────────────────────────────────────
         if [ "$DE_TYPE" = "hyprland" ]; then
-            echo -e "${DIM}  Hyprland mode: yay and SDDM are required and will be installed automatically."
-            echo -e "  Package selection is also skipped — everything gets installed.${NC}\n"
             INSTALL_YAY=1
-            INSTALL_SDDM=1
+            echo -e "${DIM}  yay: installed automatically (required for Hyprland AUR packages).${NC}"
         else
-            # yay
             echo -e "${Y}Install ${B}yay${NC}${Y} (AUR helper)?${NC}"
             h_menu _choice 0 "Yes (good idea)" "No (beta)"
             INSTALL_YAY=0
@@ -553,21 +654,26 @@ section_6() {
                 local -a _NO_YAY=("...okay, beta." "No yay? Fine. Enjoy typing AUR commands by hand like it's 2009." "Suit yourself. I'm not judging. (I am absolutely judging.)")
                 echo -e "${DIM}${_NO_YAY[$RANDOM % ${#_NO_YAY[@]}]}${NC}"; sleep 1
             fi
-
-            # SDDM
-            echo ""
-            echo -e "${Y}Install & enable ${B}SDDM${NC}${Y} (display manager / login screen)?${NC}"
-            h_menu _choice 0 "Yes" "No (soy)"
-            INSTALL_SDDM=0
-            if [ "$_choice" = "Yes" ]; then
-                INSTALL_SDDM=1
-            else
-                local -a _NO_SDDM=("Wow, no display manager. What are you, a 1990s sysadmin?" "No login screen. Okay. Enjoy your TTY, I guess. Very chic." "No SDDM. Sure. Very minimal. Very soy of you actually.")
-                echo -e "${DIM}${_NO_SDDM[$RANDOM % ${#_NO_SDDM[@]}]}${NC}"; sleep 1
-            fi
         fi
 
-        # GPU — always shown
+        # ── SDDM — always shown, default No ──────────────────────
+        echo ""
+        echo -e "${Y}Install & enable ${B}SDDM${NC}${Y} (display manager / login screen)?${NC}"
+        echo -e "${DIM}  (Works with Hyprland too, but you can skip it if you prefer TTY login)${NC}"
+        h_menu _choice 1 "Yes" "No"
+        INSTALL_SDDM=0
+        if [ "$_choice" = "Yes" ]; then
+            INSTALL_SDDM=1
+        else
+            local -a _NO_SDDM=(
+                "No login screen. Okay. Enjoy your TTY, I guess. Very chic. Very minimal."
+                "Wow, no display manager. What are you, a 1990s sysadmin? Respect, I suppose."
+                "No SDDM. Noted. You'll be greeted by a blinking cursor. Very homely. Very you."
+            )
+            echo -e "${DIM}${_NO_SDDM[$RANDOM % ${#_NO_SDDM[@]}]}${NC}"; sleep 1
+        fi
+
+        # ── GPU — always shown ────────────────────────────────────
         echo ""
         echo -e "${Y}What GPU do you have?  ${DIM}(RTX/GTX/AMD drivers are WIP, will be skipped if selected)${NC}"
         v_menu GPU_TYPE 4 \
@@ -578,29 +684,100 @@ section_6() {
             "broke boi  (no GPU drivers)"
         GPU_TYPE=$(echo "$GPU_TYPE" | awk '{print $1}')
 
-        # OS prober — always shown
+        # GPU tsundere reaction
+        local -a _GPU_INTEL_MSGS=(
+            "Intel integrated graphics. Running Minecraft on 12fps with dignity. Respect."
+            "Intel iGPU. The GPU of people who truly have their priorities straight. ...Or no money for a real one."
+            "Intel graphics. At least you're honest about your situation. That's more than most."
+            "Ah, Intel. A choice. A statement. A cry for help wrapped in a thermal throttle."
+        )
+        local -a _GPU_RTX_MSGS=(
+            "RTX? Let me guess — you still have the thermal tape on it and the box is under your bed for 'resale value.' Sure."
+            "An RTX. Wow. I hope you're using all that VRAM for something other than a desktop wallpaper. I know you aren't."
+            "Oh, RTX boi. 5090Ti, I'm sure. Playing games at 4K ultra while your fans scream for mercy. Living the dream."
+            "RTX. Very fancy. Very expensive. Very 'I told my parents it was for school.' I believe you. Completely."
+        )
+        local -a _GPU_GTX_MSGS=(
+            "GTX, huh. A classic. A relic. A card that has seen things. Time to let it retire with some dignity, maybe?"
+            "GTX boi. Still out here rocking Pascal. I admire the commitment. I also question your life choices."
+            "Oh, a GTX. Bold. Vintage. Like fine wine, except the wine is running at 60fps and crying about it."
+            "GTX detected. It's giving 'I bought this during the GPU shortage and I'm not over it.' You're not alone."
+        )
+        local -a _GPU_AMD_MSGS=(
+            "AMD? Genuinely bold. You enjoy fighting with drivers as a personality trait, and I actually respect that. A little."
+            "Oh, an AMD GPU. The 'open source but good luck' choice. Brave. Foolish. Honestly iconic."
+            "AMD? That's more chaotic than having no GPU at all. At least the broke boi mode works reliably. ...Good luck."
+            "AMD graphics on Arch Linux. You're basically signing up for an adventure. I hope you like adventure. And forums."
+        )
+        local -a _GPU_BROKE_MSGS=(
+            "BROKE BOI!! AHAHAHA!! No GPU! Just vibes and integrated framebuffers! I'm not laughing. (I'm a little laughing.)"
+            "No dedicated GPU! Honestly? Iconic energy. Raw. Unfiltered. CPU rendering like it's 2006 baby, let's GOOO."
+            "Broke boi mode activated!! Your wallet said no so your CPU said 'fine, I'll do it myself.' Inspiring, really."
+            "No GPU. Absolutely zero GPU. You're built different and by that I mean your build literally has no GPU. Respect the commitment."
+        )
+
+        echo ""
+        case "$GPU_TYPE" in
+            intel)  echo -e "${C}  ${_GPU_INTEL_MSGS[$RANDOM % ${#_GPU_INTEL_MSGS[@]}]}${NC}" ;;
+            RTX)    echo -e "${C}  ${_GPU_RTX_MSGS[$RANDOM % ${#_GPU_RTX_MSGS[@]}]}${NC}" ;;
+            GTX)    echo -e "${C}  ${_GPU_GTX_MSGS[$RANDOM % ${#_GPU_GTX_MSGS[@]}]}${NC}" ;;
+            Athlon) echo -e "${C}  ${_GPU_AMD_MSGS[$RANDOM % ${#_GPU_AMD_MSGS[@]}]}${NC}" ;;
+            broke)  echo -e "${G}  ${_GPU_BROKE_MSGS[$RANDOM % ${#_GPU_BROKE_MSGS[@]}]}${NC}" ;;
+        esac
+        sleep 1.5
+
+        # ── OS prober ─────────────────────────────────────────────
         echo ""
         echo -e "${Y}Detect other operating systems via GRUB?  ${DIM}(e.g. Windows dual-boot)${NC}"
         h_menu _choice 0 "Yes" "No"
         DETECT_OS=0
-        [ "$_choice" = "Yes" ] && DETECT_OS=1
+        if [ "$_choice" = "Yes" ]; then
+            DETECT_OS=1
+            local -a _DUALBOOT_ROASTS=(
+                "Oh, keeping Windows around? Can't fully commit, huh? Just can't let go... It's okay, I understand. No really. I'm not judging. (I'm judging so hard right now.)"
+                "A dual boot. The 'I want to break up but I'm keeping their hoodie just in case' of operating systems. We see you."
+                "Still have Windows on there? You know what they call that? Hedging. Cowardice dressed as practicality. But fine. I'll detect it for you."
+                "Dual boot detected. You're like someone who says they love hiking but keeps the car running 'just in case.' Unfaithful to the terminal. Tragic."
+            )
+            echo -e "${DIM}  ${_DUALBOOT_ROASTS[$RANDOM % ${#_DUALBOOT_ROASTS[@]}]}${NC}"; sleep 1.5
+        fi
 
-        # Autologin — always shown
+        # ── Autologin ─────────────────────────────────────────────
         echo ""
         echo -e "${Y}Set up ${B}autologin${NC}${Y} on TTY1?${NC}"
         h_menu _choice 1 "Yes" "No"
         AUTOLOGIN=0
-        [ "$_choice" = "Yes" ] && AUTOLOGIN=1
+        if [ "$_choice" = "Yes" ]; then
+            AUTOLOGIN=1
+            local -a _AUTOLOGIN_YES_ROASTS=(
+                "Autologin. So anyone who touches your machine gets in immediately. I hope there's nothing... sensitive on there. For your sake. And your parents' sake."
+                "Auto-login enabled. Bold choice for someone who allegedly lives in a household with other humans. Nothing on that drive you'd be embarrassed about? Sure. Sure."
+                "Oh, autologin? Right. Because passwords are for people who have things to hide. You definitely have nothing to hide. Definitely. Nothing."
+                "Autologin. If your family ever touches that computer and finds something they shouldn't... that's between you and them. I'm just the installer."
+            )
+            echo -e "${DIM}  ${_AUTOLOGIN_YES_ROASTS[$RANDOM % ${#_AUTOLOGIN_YES_ROASTS[@]}]}${NC}"; sleep 1.5
+        else
+            local -a _AUTOLOGIN_NO_ROASTS=(
+                "No autologin. Password required to enter. ...What are you hiding? I'm not accusing. I'm just. Curious."
+                "Login screen it is. Very private. Very deliberate. I respect it. Deeply suspicious of it, but I respect it."
+                "Ah, a password gate. Because some files are for YOUR eyes only. Noted. We won't ask any more questions."
+                "Manual login. Smart. Secure. Or you have a folder with a name like 'totally just taxes 2'. Either way, I support you."
+            )
+            echo -e "${DIM}  ${_AUTOLOGIN_NO_ROASTS[$RANDOM % ${#_AUTOLOGIN_NO_ROASTS[@]}]}${NC}"; sleep 1.5
+        fi
 
-        # Packages + kitty config — hidden in hyprland mode
+        # ── Packages + kitty config — skipped in hyprland mode ───
         KITTY_DEFAULTS=0
         if [ "$DE_TYPE" = "hyprland" ]; then
             OPT_PKGS=()
             KITTY_DEFAULTS=1  # kitty always included with hyprland
+            echo ""
+            echo -e "${DIM}  Hyprland mode: full package set installed automatically (including kitty).${NC}"
         else
             echo ""
             echo -e "${Y}Any extra packages?  ${DIM}(Space or Enter toggles, Enter on Continue confirms)${NC}"
-            cb_menu _opt_pkgs_selected "" \
+            # Cursor starts at "Continue" (idx 5)
+            cb_menu _opt_pkgs_selected "" 5 \
                 "Firefox" \
                 "Code (VS Code)" \
                 "Dolphin (file manager)" \
@@ -634,11 +811,11 @@ section_6() {
             done
         fi
 
-        # Confirm section 6
+        # ── Section 6 confirm ─────────────────────────────────────
         clear
         echo -e "${B}════ Section 6 Summary ════${NC}"
         echo -e "  Install yay     : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto — Hyprland)" || echo "")${NC}"
-        echo -e "  Install SDDM    : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto — Hyprland)" || echo "")${NC}"
+        echo -e "  Install SDDM    : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  GPU Type        : ${C}$GPU_TYPE${NC}"
         echo -e "  Detect other OS : ${C}$([ $DETECT_OS -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  Autologin       : ${C}$([ $AUTOLOGIN -eq 1 ] && echo yes || echo no)${NC}"
@@ -698,13 +875,13 @@ section_7() {
         echo -e "${B}── Locale & Input ───────────────────────────────────${NC}"
         echo -e "  Locales     : ${C}${LOCALES[*]}${NC}"
         echo -e "  Keymap      : ${C}$KEYMAP${NC}"
-        echo -e "  Multilib    : ${C}enabled${NC}"
         echo -e "  Timezone    : ${C}America/Lima (hardcoded)${NC}"
+        echo -e "  Multilib    : ${C}enabled${NC}"
         echo ""
         echo -e "${B}── Desktop & Extras ─────────────────────────────────${NC}"
         echo -e "  Desktop env : ${C}$DE_TYPE${NC}"
         echo -e "  Install yay : ${C}$([ $INSTALL_YAY  -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto)" || echo "")${NC}"
-        echo -e "  SDDM        : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)$([ "$DE_TYPE" = "hyprland" ] && echo " (auto)" || echo "")${NC}"
+        echo -e "  SDDM        : ${C}$([ $INSTALL_SDDM -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  GPU type    : ${C}$GPU_TYPE${NC}"
         echo -e "  Detect OS   : ${C}$([ $DETECT_OS -eq 1 ] && echo yes || echo no)${NC}"
         echo -e "  Autologin   : ${C}$([ $AUTOLOGIN -eq 1 ] && echo yes || echo no)${NC}"
@@ -812,6 +989,7 @@ section_3
 section_4
 section_5
 section_6
+section_7   # ← master summary + final confirmation (was missing before!)
 
 # ════════════════════════════════════════════════════════════════
 #  INSTALLATION
@@ -853,6 +1031,21 @@ genfstab -U /mnt > /mnt/etc/fstab
 log "fstab written"
 cat /mnt/etc/fstab >> "$LOG_FILE"
 
+# ── Copy Hyprland barebones config into /mnt before chroot ─────
+if [ "$DE_TYPE" = "hyprland" ]; then
+    HYPR_SRC="$SCRIPT_DIR/hyprland_install_barebones"
+    if [ -d "$HYPR_SRC" ]; then
+        cp -rf "$HYPR_SRC" /mnt/hyprland_install_barebones
+        log_ok "Copied hyprland_install_barebones to /mnt (will be accessible inside chroot)"
+    else
+        log_err "hyprland_install_barebones/ not found at $HYPR_SRC — Hyprland config will NOT be copied"
+        echo -e "${R}WARNING: Could not find '$HYPR_SRC'"
+        echo -e "         Hyprland will be installed but config won't be copied automatically."
+        echo -e "         Copy it manually after installation if needed.${NC}"
+        sleep 3
+    fi
+fi
+
 # ════════════════════════════════════════════════════════════════
 #  CREATE SECOND SCRIPT (inside /mnt, runs in chroot)
 # ════════════════════════════════════════════════════════════════
@@ -889,6 +1082,8 @@ GPU_TYPE="$GPU_TYPE"
 DETECT_OS=$DETECT_OS
 AUTOLOGIN=$AUTOLOGIN
 OPT_PKGS_STR="$OPT_PKGS_STR"
+KITTY_DEFAULTS=$KITTY_DEFAULTS
+DE_TYPE="$DE_TYPE"
 ENDVARS
 
 # Part 2: script body (single-quoted, no expansion — $ signs are literal)
@@ -949,10 +1144,7 @@ run2 hwclock --systohc
 # ── Locales ──────────────────────────────────────────────────────
 log2_h "Locales"
 for locale in "${LOCALES[@]}"; do
-    # Escape ERE special chars so dots/etc in locale names don't wildcard-match
     esc=$(printf '%s' "$locale" | sed 's/[.+*[\^${}|()]/\\&/g')
-    # locale.gen entries often have trailing spaces AND may or may not have a space after #
-    # grep AND sed both need [[:space:]]* before end-anchor, or they won't match/replace
     if grep -qE "^#[[:space:]]?${esc}[[:space:]]*$" /etc/locale.gen; then
         sed -i -E "s|^#[[:space:]]?${esc}[[:space:]]*$|${locale}|" /etc/locale.gen
         log2_ok "Enabled locale: $locale"
@@ -962,7 +1154,6 @@ for locale in "${LOCALES[@]}"; do
 done
 run2 locale-gen
 
-# Set LANG to first locale
 FIRST_LOCALE="${LOCALES[0]}"
 LANG_SETTING=$(echo "$FIRST_LOCALE" | awk '{print $1}')
 echo "LANG=$LANG_SETTING" > /etc/locale.conf
@@ -1028,8 +1219,6 @@ run2 grub-mkconfig -o /boot/grub/grub.cfg
 # ── yay ──────────────────────────────────────────────────────────
 if [ "$INSTALL_YAY" -eq 1 ]; then
     log2_h "Installing yay (AUR helper)"
-    # Strategy: build as non-root user (makepkg refuses root), install the
-    # resulting package as root directly with pacman -U. No sudo password needed.
     (
         set -e
         YAY_TMP="/tmp/yay-bin-aur"
@@ -1037,13 +1226,60 @@ if [ "$INSTALL_YAY" -eq 1 ]; then
         git clone https://aur.archlinux.org/yay-bin.git "$YAY_TMP"
         chown -R "${USERNAME}:${USERNAME}" "$YAY_TMP"
         cd "$YAY_TMP"
-        # Build only (no -s install flag); we'll install as root below
         runuser -u "$USERNAME" -- makepkg --noconfirm
-        # Install the built package(s) as root — no password prompt
         pacman -U --noconfirm *.pkg.tar.zst
         cd /
         rm -rf "$YAY_TMP"
     ) >> "$PT2_LOG" 2>&1 && log2_ok "yay installed" || log2_err "yay installation failed — check $PT2_LOG"
+fi
+
+# ── Hyprland ─────────────────────────────────────────────────────
+if [ "$DE_TYPE" = "hyprland" ]; then
+    log2_h "Hyprland Installation"
+
+    # Core packages via pacman (run as root, no sudo needed)
+    run2 pacman -S --needed --noconfirm \
+        hyprland hyprlauncher polkit-kde-agent \
+        unrar unzip waybar zip dunst kitty
+
+    # AUR package via yay (must run as the regular user)
+    # Temporarily allow NOPASSWD so yay can call pacman without prompting
+    log2 "Temporarily enabling NOPASSWD for yay AUR build..."
+    sed -i 's/%wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) NOPASSWD: ALL/' /etc/sudoers
+
+    runuser -u "$USERNAME" -- yay -S --noconfirm --needed webcord-bin \
+        >> "$PT2_LOG" 2>&1 \
+        && log2_ok "webcord-bin installed via yay" \
+        || log2_err "webcord-bin installation failed — check $PT2_LOG"
+
+    # Restore normal sudo (password required)
+    sed -i 's/%wheel ALL=(ALL:ALL) NOPASSWD: ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+    log2 "Restored normal sudo (password required)"
+
+    # Autolaunch Hyprland from TTY1 via .bash_profile
+    USER_HOME="/home/${USERNAME}"
+    BASH_PROFILE="${USER_HOME}/.bash_profile"
+    log2 "Adding Hyprland autolaunch to $BASH_PROFILE"
+    cat >> "$BASH_PROFILE" << 'HYPR_PROFILE_EOF'
+if [[ -z $WAYLAND_DISPLAY ]] && [[ $(tty) == /dev/tty1 ]]; then
+    exec start-hyprland
+fi
+HYPR_PROFILE_EOF
+    chown "${USERNAME}:${USERNAME}" "$BASH_PROFILE"
+    log2_ok "Hyprland autolaunch added to .bash_profile"
+
+    # Copy barebones config
+    HYPR_CONFIG_SRC="/hyprland_install_barebones"
+    if [ -d "$HYPR_CONFIG_SRC" ]; then
+        mkdir -p "${USER_HOME}/.config"
+        cp -rf "${HYPR_CONFIG_SRC}/"* "${USER_HOME}/.config/"
+        chown -R "${USERNAME}:${USERNAME}" "${USER_HOME}/.config"
+        log2_ok "Hyprland barebones config copied to ${USER_HOME}/.config/"
+        rm -rf "$HYPR_CONFIG_SRC"
+    else
+        log2_err "hyprland_install_barebones/ not found at $HYPR_CONFIG_SRC — copy config manually!"
+        log2_err "Expected it to be copied from the installer dir before chroot. Was it missing?"
+    fi
 fi
 
 # ── SDDM ─────────────────────────────────────────────────────────
@@ -1063,7 +1299,6 @@ if [ "$DETECT_OS" -eq 1 ]; then
     else
         log2_err "Could not find GRUB_DISABLE_OS_PROBER in /etc/default/grub — add it manually"
     fi
-    # Mount sibling partitions so os-prober can find them
     for p in /dev/${SEL_DRIVE}?*; do
         [ "$p" = "/dev/$SEL_DRIVE" ] && continue
         mnt_point="/mnt/$(basename "$p")"
@@ -1115,6 +1350,32 @@ if [ ${#OPT_PKGS[@]} -gt 0 ]; then
     if [ -n "$PKGS_TO_INSTALL" ]; then
         # shellcheck disable=SC2086
         run2 pacman -S --needed --noconfirm $PKGS_TO_INSTALL
+    fi
+fi
+
+# ── Kitty sane defaults ──────────────────────────────────────────
+if [ "$KITTY_DEFAULTS" -eq 1 ]; then
+    log2_h "Kitty sane defaults"
+    KITTY_CONF_DIR="/home/${USERNAME}/.config/kitty"
+    KITTY_CONF="${KITTY_CONF_DIR}/kitty.conf"
+    # Only write if not already created by Hyprland barebones config copy
+    if [ ! -f "$KITTY_CONF" ]; then
+        mkdir -p "$KITTY_CONF_DIR"
+        cat > "$KITTY_CONF" << 'KITTY_EOF'
+# Kitty config — sane keybinds by Osean's installer
+# ctrl+c: copy if text selected, otherwise send interrupt (SIGINT)
+map ctrl+c copy_or_send_interrupt
+# ctrl+v: paste from clipboard like a normal human being
+map ctrl+v paste_from_clipboard
+# ctrl+shift+c: raw SIGINT escape hatch when you need it
+map ctrl+shift+c send_text normal \x03
+# Bracketed paste: prevents scripts from consuming pasted text
+enable_audio_bell no
+KITTY_EOF
+        chown -R "${USERNAME}:${USERNAME}" "$KITTY_CONF_DIR"
+        log2_ok "Kitty sane defaults written to $KITTY_CONF"
+    else
+        log2 "Kitty config already exists (from Hyprland barebones) — skipping default write"
     fi
 fi
 
