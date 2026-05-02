@@ -1237,10 +1237,12 @@ fi
 if [ "$DE_TYPE" = "hyprland" ]; then
     log2_h "Hyprland Installation"
 
-    # Core packages via pacman (run as root, no sudo needed)
+    # Core Hyprland packages via pacman (run as root, no sudo needed)
+    # NOTE: kitty, firefox, code, dolphin, fonts are installed below in the
+    #       shared "Optional Packages" block so everything comes from one place.
     run2 pacman -S --needed --noconfirm \
         hyprland hyprlauncher polkit-kde-agent \
-        unrar unzip waybar zip dunst kitty
+        unrar unzip waybar zip dunst
 
     # AUR package via yay (must run as the regular user)
     # Temporarily allow NOPASSWD so yay can call pacman without prompting
@@ -1335,9 +1337,15 @@ case "$GPU_TYPE" in
 esac
 
 # ── Optional Packages ────────────────────────────────────────────
-if [ ${#OPT_PKGS[@]} -gt 0 ]; then
-    log2_h "Optional Packages"
-    PKGS_TO_INSTALL=""
+# In Hyprland mode OPT_PKGS is empty (user couldn't check anything),
+# so we install the full standard set here explicitly.
+# In normal mode we install whatever the user checked.
+log2_h "Optional Packages"
+PKGS_TO_INSTALL=""
+if [ "$DE_TYPE" = "hyprland" ]; then
+    log2 "Hyprland mode: installing full package set (firefox, code, dolphin, kitty, fonts)"
+    PKGS_TO_INSTALL="firefox code dolphin kitty ttf-hack ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols"
+elif [ ${#OPT_PKGS[@]} -gt 0 ]; then
     for pkg_name in "${OPT_PKGS[@]}"; do
         case "$pkg_name" in
             "Firefox")                        PKGS_TO_INSTALL="$PKGS_TO_INSTALL firefox" ;;
@@ -1347,10 +1355,12 @@ if [ ${#OPT_PKGS[@]} -gt 0 ]; then
             "Basic Fonts"*)                   PKGS_TO_INSTALL="$PKGS_TO_INSTALL ttf-hack ttf-dejavu ttf-jetbrains-mono ttf-nerd-fonts-symbols" ;;
         esac
     done
-    if [ -n "$PKGS_TO_INSTALL" ]; then
-        # shellcheck disable=SC2086
-        run2 pacman -S --needed --noconfirm $PKGS_TO_INSTALL
-    fi
+fi
+if [ -n "$PKGS_TO_INSTALL" ]; then
+    # shellcheck disable=SC2086
+    run2 pacman -S --needed --noconfirm $PKGS_TO_INSTALL
+else
+    log2 "No optional packages to install"
 fi
 
 # ── Kitty sane defaults ──────────────────────────────────────────
